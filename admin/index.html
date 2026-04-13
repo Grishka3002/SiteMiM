@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Админ-панель • Мисс и Мистер ВВГУ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body data-page="admin">
+  <div class="page-shell">
+    <header class="topbar topbar--poster">
+      <a class="brand" href="../index.html" aria-label="Мисс и Мистер ВВГУ">
+        <img class="brand__logo brand__logo--image" src="../images/1.png" alt="Логотип Мисс и Мистер ВВГУ" />
+      </a>
+    </header>
+
+    <section class="subsite-intro paper-card">
+      <p class="eyebrow">Подсайт организаторов</p>
+      <h1>Админ-панель управления билетами</h1>
+      <p>Следите за залом, выгружайте данные и настраивайте собственную схему мест через отдельный конструктор.</p>
+    </section>
+
+    <main class="layout-stack">
+      <section class="stats-grid" id="stats-grid"></section>
+
+      <section class="panel paper-card">
+        <div class="panel__header panel__header--wrap">
+          <div>
+            <p class="panel__kicker">Разделы</p>
+            <h2>Рабочая область</h2>
+          </div>
+          <div class="admin-tabs">
+            <button type="button" class="button button--ghost admin-tab is-active" data-admin-tab="bookings">Брони</button>
+            <button type="button" class="button button--ghost admin-tab" data-admin-tab="designer">Конструктор 70×70</button>
+          </div>
+        </div>
+
+        <div class="admin-tab-panel" data-admin-panel="bookings">
+          <div class="panel__header panel__header--wrap">
+            <div>
+              <p class="panel__kicker">Быстрые действия</p>
+              <h2>Управление бронями</h2>
+            </div>
+            <div class="toolbar">
+              <input id="admin-search" class="input" type="search" placeholder="Поиск по ФИО, группе, коду, месту" />
+              <button class="button button--ghost" id="export-data">Скачать CSV</button>
+              <button class="button button--danger" id="reset-demo">Очистить все данные</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Место</th>
+                  <th>ФИО</th>
+                  <th>Группа</th>
+                  <th>Код</th>
+                  <th>Контакт</th>
+                  <th>Статус</th>
+                  <th>Действие</th>
+                </tr>
+              </thead>
+              <tbody id="admin-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="admin-tab-panel hidden" data-admin-panel="designer">
+          <div class="panel__header panel__header--wrap">
+            <div>
+              <p class="panel__kicker">Конструктор</p>
+              <h2>Схема 70 × 70</h2>
+            </div>
+            <div class="toolbar">
+              <button type="button" class="button button--ghost" id="designer-save">Сохранить схему</button>
+              <button type="button" class="button button--ghost" id="designer-clear">Очистить поле</button>
+            </div>
+          </div>
+
+          <p class="muted designer-help">
+            Отмечайте клетки, которые должны стать местами. После сохранения эта схема сразу будет использоваться на главной странице.
+          </p>
+
+          <div class="designer-tools">
+            <div class="admin-tabs">
+              <button type="button" class="button button--ghost designer-mode is-active" data-designer-mode="seats">Места</button>
+              <button type="button" class="button button--ghost designer-mode" data-designer-mode="labels">Подписи</button>
+            </div>
+            <input id="designer-label-text" class="input" type="text" placeholder="Текст подписи, например Ряд 1 или Балкон" />
+            <select id="designer-label-kind" class="input">
+              <option value="section">Заголовок</option>
+              <option value="row">Подпись ряда</option>
+              <option value="custom">Обычный текст</option>
+            </select>
+          </div>
+
+          <div class="designer-summary" id="designer-summary"></div>
+          <div class="seat-designer-wrap">
+            <div class="seat-designer" id="seat-designer" aria-label="Редактор схемы 70 на 70"></div>
+          </div>
+          <div class="designer-labels" id="designer-labels"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="../scripts/admin.js"></script>
+</body>
+</html>

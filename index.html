@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Мисс и Мистер ВВГУ • Билеты</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script defer src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body data-page="booking">
+  <div class="page-shell">
+    <header class="topbar topbar--poster">
+      <a class="brand" href="./index.html" aria-label="Мисс и Мистер ВВГУ">
+        <img class="brand__logo brand__logo--image" src="./images/1.png" alt="Логотип Мисс и Мистер ВВГУ" />
+      </a>
+    </header>
+
+    <section class="hero">
+      <div class="hero__content paper-card">
+        <p class="eyebrow">Конкурс таланта и красоты</p>
+        <h1 class="hero__title">Выберите места и получите билеты на «Мисс и Мистер ВВГУ 2026»</h1>
+        <p class="hero__text">
+          Интерактивная схема зала, бронирование нескольких мест, ввод ФИО каждого зрителя и билеты с уникальным QR-кодом в одном окне.
+        </p>
+        <div class="hero__meta">
+          <span class="hero-chip">Зал и рассадка</span>
+          <span class="hero-chip">QR-билеты</span>
+          <span class="hero-chip">Онлайн-контроль мест</span>
+        </div>
+      </div>
+      <div class="hero__visual">
+        <div class="hero__glow"></div>
+        <div class="hero__poster">
+          <div class="hero__poster-frame"></div>
+          <div class="hero__poster-copy">
+            <span class="hero__poster-note">действуй прямо</span>
+            <strong>СЕЙЧАС</strong>
+            <p>Бронируй лучшие места на конкурс уже сегодня</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <main class="layout-grid">
+      <section class="panel panel--wide panel--dark">
+        <div class="panel__header">
+          <div>
+            <p class="panel__kicker">Схема зала</p>
+            <h2>Выберите удобные места</h2>
+          </div>
+          <div class="legend">
+            <span><i class="seat-dot seat-dot--free"></i> Свободно</span>
+            <span><i class="seat-dot seat-dot--selected"></i> Выбрано</span>
+            <span><i class="seat-dot seat-dot--held"></i> Выбирает другой человек</span>
+            <span><i class="seat-dot seat-dot--booked"></i> Забронировано</span>
+            <span><i class="seat-dot seat-dot--checked"></i> Прошёл вход</span>
+          </div>
+        </div>
+
+        <div id="hall-map" class="hall-map" aria-live="polite"></div>
+      </section>
+
+      <aside class="panel booking-panel paper-card">
+        <div class="panel__header">
+          <div>
+            <p class="panel__kicker">Оформление</p>
+            <h2>Данные зрителей</h2>
+          </div>
+          <div class="selection-badge" id="selection-count">0 мест</div>
+        </div>
+
+        <div class="selection-summary" id="selection-summary">
+          Выберите хотя бы одно место на схеме зала.
+        </div>
+
+        <form id="booking-form" class="booking-form">
+          <label class="field">
+            <span>Контактный телефон</span>
+            <input type="tel" id="contact-phone" name="contactPhone" placeholder="+7 (999) 123-45-67" required />
+          </label>
+
+          <label class="field">
+            <span>Email или соцсеть для связи</span>
+            <input type="text" id="contact-note" name="contactNote" placeholder="@telegram или email" required />
+          </label>
+
+          <div id="attendees-fields" class="attendees-fields"></div>
+
+          <button type="submit" class="button button--primary button--full">Сгенерировать билеты</button>
+        </form>
+      </aside>
+    </main>
+
+    <section class="panel tickets-panel hidden paper-card" id="tickets-panel">
+      <div class="panel__header">
+        <div>
+          <p class="panel__kicker">Мои билеты</p>
+          <h2>Билеты этого устройства</h2>
+        </div>
+        <div class="tickets-actions">
+          <button type="button" class="button button--ghost" id="download-all-tickets">Скачать все</button>
+        </div>
+      </div>
+      <p class="muted" id="tickets-booking-meta"></p>
+      <div id="tickets-output" class="tickets-output"></div>
+    </section>
+  </div>
+
+  <script>
+    (async () => {
+      const hallMap = document.getElementById("hall-map");
+      const selectionCount = document.getElementById("selection-count");
+      const selectionSummary = document.getElementById("selection-summary");
+      const attendeesFields = document.getElementById("attendees-fields");
+      if (!hallMap) return;
+
+      const renderFallbackSelection = () => {
+        const selectedButtons = [...hallMap.querySelectorAll(".seat--selected[data-seat-id]")];
+
+        if (selectionCount) {
+          selectionCount.textContent = `${selectedButtons.length} мест`;
+        }
+
+        if (!selectedButtons.length) {
+          if (selectionSummary) {
+            selectionSummary.textContent = "Выберите хотя бы одно место на схеме зала.";
+          }
+          if (attendeesFields) {
+            attendeesFields.innerHTML = "";
+          }
+          return;
+        }
+
+        const selectedLabels = selectedButtons.map((button) => button.title || button.dataset.seatId);
+        if (selectionSummary) {
+          selectionSummary.innerHTML = `Вы выбрали: <strong>${selectedLabels.join("; ")}</strong>`;
+        }
+
+        if (attendeesFields) {
+          attendeesFields.innerHTML = selectedButtons
+            .map(
+              (button, index) => `
+                <section class="attendee-card">
+                  <div class="attendee-card__heading">
+                    <span>Билет ${index + 1}</span>
+                    <span>${button.title || button.dataset.seatId}</span>
+                  </div>
+                  <label class="field">
+                    <span>ФИО</span>
+                    <input type="text" name="fullName-${button.dataset.seatId}" placeholder="Иванов Иван Иванович" required />
+                  </label>
+                  <label class="field">
+                    <span>Группа</span>
+                    <input type="text" name="group-${button.dataset.seatId}" placeholder="Б-211" required />
+                  </label>
+                </section>
+              `
+            )
+            .join("");
+        }
+      };
+
+      window.__vvguSeatClick =
+        window.__vvguSeatClick ||
+        ((seatId) => {
+          const button = hallMap.querySelector(`[data-seat-id="${seatId}"]`);
+          if (!button) return;
+          if (
+            button.classList.contains("seat--booked") ||
+            button.classList.contains("seat--held") ||
+            button.classList.contains("seat--checked")
+          ) {
+            return;
+          }
+
+          button.classList.toggle("seat--selected");
+          renderFallbackSelection();
+        });
+
+      const getDisplayLabelText = (label, absoluteRow) => {
+        if (label.kind !== "row") {
+          return label.text;
+        }
+
+        if (absoluteRow >= 1 && absoluteRow <= 21) {
+          return `ряд ${absoluteRow}`;
+        }
+
+        if (label.x <= 5 && absoluteRow >= 22 && absoluteRow <= 26) {
+          return `ряд ${absoluteRow - 21}`;
+        }
+
+        if (label.x >= 50 && absoluteRow >= 22 && absoluteRow <= 26) {
+          return `ряд ${absoluteRow - 21}`;
+        }
+
+        if (label.x >= 10 && label.x <= 20 && absoluteRow >= 24 && absoluteRow <= 33) {
+          return `ряд ${absoluteRow - 23}`;
+        }
+
+        return label.text;
+      };
+
+      const getMappedSeatDisplay = (absoluteRow, absoluteSeatNumber) => {
+        if (absoluteRow >= 1 && absoluteRow <= 21) {
+          return `Партер, ряд ${absoluteRow}, место ${absoluteSeatNumber}`;
+        }
+
+        const balconyRanges = {
+          24: [9, 35],
+          25: [7, 35],
+          26: [5, 35],
+          27: [1, 30],
+          28: [1, 30],
+          29: [1, 30],
+          30: [1, 30],
+          31: [1, 38],
+          32: [1, 38],
+          33: [1, 39]
+        };
+
+        const lodgeLeftRanges = {
+          22: [1, 9],
+          23: [1, 9],
+          24: [1, 8],
+          25: [1, 6],
+          26: [1, 4]
+        };
+
+        const lodgeRightRanges = {
+          22: [10, 18],
+          23: [10, 18],
+          24: [36, 43],
+          25: [36, 41],
+          26: [36, 39]
+        };
+
+        if (lodgeLeftRanges[absoluteRow]) {
+          const [start, end] = lodgeLeftRanges[absoluteRow];
+          if (absoluteSeatNumber >= start && absoluteSeatNumber <= end) {
+            return `Ложа 1, ряд ${absoluteRow - 21}, место ${absoluteSeatNumber - start + 1}`;
+          }
+        }
+
+        if (lodgeRightRanges[absoluteRow]) {
+          const [start, end] = lodgeRightRanges[absoluteRow];
+          if (absoluteSeatNumber >= start && absoluteSeatNumber <= end) {
+            return `Ложа 2, ряд ${absoluteRow - 21}, место ${absoluteSeatNumber - start + 1}`;
+          }
+        }
+
+        if (balconyRanges[absoluteRow]) {
+          const [start, end] = balconyRanges[absoluteRow];
+          if (absoluteSeatNumber >= start && absoluteSeatNumber <= end) {
+            return `Балкон, ряд ${absoluteRow - 23}, место ${absoluteSeatNumber - start + 1}`;
+          }
+        }
+
+        return `Ряд ${absoluteRow}, место ${absoluteSeatNumber}`;
+      };
+
+      const buildFallbackHall = (layout) => {
+        const cells = Array.isArray(layout?.cells) ? layout.cells : [];
+        const labels = Array.isArray(layout?.labels) ? layout.labels : [];
+        if (!cells.length) return "";
+
+        const points = [
+          ...cells.map((cell) => ({ x: cell.x, y: cell.y })),
+          ...labels.map((label) => ({ x: label.x, y: label.y }))
+        ];
+        const minX = Math.min(...points.map((point) => point.x));
+        const minY = Math.min(...points.map((point) => point.y));
+        const maxX = Math.max(...points.map((point) => point.x));
+        const maxY = Math.max(...points.map((point) => point.y));
+        const cols = maxX - minX + 1;
+        const rows = maxY - minY + 1;
+
+        const rowValues = [...new Set(cells.map((cell) => cell.y))].sort((a, b) => b - a);
+        const rowNumberByY = new Map(rowValues.map((y, index) => [y, String(index + 1)]));
+        const absoluteRowByY = new Map(rowValues.map((y, index) => [y, index + 1]));
+
+        const seatsMarkup = rowValues.flatMap((y) => {
+          const rowCells = cells.filter((cell) => cell.y === y).sort((a, b) => a.x - b.x);
+
+          return rowCells.map((cell, index) => `
+              <div class="custom-hall__slot" style="grid-column:${cell.x - minX + 1}; grid-row:${cell.y - minY + 1};">
+              <button
+                type="button"
+                class="seat seat--plan"
+                data-seat-id="custom-${y}-${cell.x}"
+                title="${getMappedSeatDisplay(absoluteRowByY.get(y), index + 1)}"
+              >${index + 1}</button>
+            </div>
+          `);
+        }).join("");
+
+        const labelsMarkup = labels.map((label) => `
+          <div
+            class="custom-hall-label custom-hall-label--${label.kind || "custom"}"
+              style="--x:${label.x - minX}; --y:${label.y - minY};"
+          >${getDisplayLabelText(label, absoluteRowByY.get(label.y))}</div>
+        `).join("");
+
+        return `
+          <div class="hall-plan hall-plan--custom">
+            <section class="hall-section hall-section--custom">
+              <h3 class="hall-section__title hall-section__title--center">Схема зала</h3>
+              <div class="custom-hall custom-hall--freeform">
+                <div class="custom-hall__canvas" style="--cols:${cols}; --rows:${rows};">
+                  ${seatsMarkup}
+                  ${labelsMarkup}
+                </div>
+              </div>
+            </section>
+            <div class="stage">Сцена</div>
+          </div>
+        `;
+      };
+
+      try {
+        const response = await fetch("./data/layout.json", { cache: "no-store" });
+        if (!response.ok) return;
+        const layout = await response.json();
+        if (!hallMap.querySelector("[data-seat-id]")) {
+          hallMap.innerHTML = buildFallbackHall(layout);
+        }
+      } catch (error) {
+        console.warn("Не удалось отрисовать fallback-схему.", error);
+      }
+      hallMap.addEventListener("click", (event) => {
+        if (window.__vvguBookingInitialized) return;
+        const target = event.target.closest("[data-seat-id]");
+        if (!target) return;
+
+        event.preventDefault();
+        window.__vvguSeatClick?.(target.dataset.seatId);
+      });
+      window.setTimeout(() => {
+        if (!window.__vvguBookingInitialized) {
+          renderFallbackSelection();
+        }
+      }, 400);
+    })();
+  </script>
+  <script type="module" src="./scripts/booking.js"></script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Волонтёры • Проверка билетов</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body data-page="volunteer">
+  <div class="page-shell">
+    <header class="topbar topbar--poster">
+      <a class="brand" href="../index.html" aria-label="Мисс и Мистер ВВГУ">
+        <img class="brand__logo brand__logo--image" src="../images/1.png" alt="Логотип Мисс и Мистер ВВГУ" />
+      </a>
+    </header>
+
+    <section class="subsite-intro paper-card">
+      <p class="eyebrow">Подсайт регистрации</p>
+      <h1>Проверка билетов на входе</h1>
+      <p>Сканируйте QR-коды камерой или вводите код вручную. Статус прохода обновляется сразу после проверки.</p>
+    </section>
+
+    <main class="layout-grid layout-grid--scanner">
+      <section class="panel panel--dark">
+        <div class="panel__header">
+          <div>
+            <p class="panel__kicker">Сканирование</p>
+            <h2>Проверка QR-кода</h2>
+          </div>
+          <button class="button button--ghost" id="start-scan">Запустить камеру</button>
+        </div>
+
+        <video id="scanner-video" class="scanner-video hidden" playsinline></video>
+        <p class="muted" id="scanner-hint">Если камера недоступна, вставьте код вручную из QR.</p>
+
+        <form id="scan-form" class="scan-form">
+          <label class="field">
+            <span>Код билета</span>
+            <input id="ticket-code-input" class="input" type="text" placeholder="VVGU-2026-XXXXXX" required />
+          </label>
+          <button class="button button--primary" type="submit">Проверить билет</button>
+        </form>
+      </section>
+
+      <section class="panel result-panel paper-card" id="scan-result-panel">
+        <div class="panel__header">
+          <div>
+            <p class="panel__kicker">Результат</p>
+            <h2>Статус прохода</h2>
+          </div>
+        </div>
+        <div id="scan-result" class="scan-result scan-result--idle">
+          Ожидается сканирование или ручной ввод кода.
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="../scripts/volunteer.js"></script>
+</body>
+</html>
