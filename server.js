@@ -6,6 +6,8 @@ const PORT = Number(process.env.PORT || 8080);
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
 const LAYOUT_FILE = path.join(DATA_DIR, "layout.json");
+const ADMIN_PASSWORD = "14MiMVVSU05";
+const ADMIN_REALM = 'Admin Panel';
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -58,9 +60,49 @@ function readRequestBody(request) {
   });
 }
 
+function getBasicAuthPassword(request) {
+  const header = request.headers.authorization || "";
+  if (!header.startsWith("Basic ")) {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
+    const separatorIndex = decoded.indexOf(":");
+    if (separatorIndex === -1) {
+      return null;
+    }
+
+    return decoded.slice(separatorIndex + 1);
+  } catch {
+    return null;
+  }
+}
+
+function requireAdminAuth(request, response) {
+  const password = getBasicAuthPassword(request);
+  if (password === ADMIN_PASSWORD) {
+    return true;
+  }
+
+  response.writeHead(401, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "WWW-Authenticate": `Basic realm="${ADMIN_REALM}", charset="UTF-8"`
+  });
+  response.end("Требуется пароль администратора");
+  return false;
+}
+
 const server = http.createServer((request, response) => {
   ensureDataFiles();
   const urlPath = decodeURIComponent((request.url || "/").split("?")[0]);
+
+  const isAdminRoute = urlPath === "/admin" || urlPath.startsWith("/admin/");
+  const isAdminWriteRoute = urlPath === "/api/layout" && request.method === "POST";
+
+  if ((isAdminRoute || isAdminWriteRoute) && !requireAdminAuth(request, response)) {
+    return;
+  }
 
   if (urlPath === "/api/layout" && request.method === "GET") {
     fs.readFile(LAYOUT_FILE, "utf8", (error, content) => {

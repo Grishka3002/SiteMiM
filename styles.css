@@ -543,6 +543,13 @@ body[data-page="volunteer"] .scan-result {
   position: relative;
   z-index: 5;
   pointer-events: auto !important;
+  width: 100%;
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  padding: 4px 6px 10px 4px;
 }
 
 #hall-map,
@@ -560,6 +567,7 @@ body[data-page="volunteer"] .scan-result {
   gap: 28px;
   max-width: 1560px;
   margin: 0 auto;
+  width: max-content;
   position: relative;
   z-index: 5;
   pointer-events: auto !important;
@@ -1357,19 +1365,25 @@ body[data-page="volunteer"] .scan-result {
     scroll-snap-align: start;
   }
 
-  .hall-plan__top {
-    grid-template-columns: 1fr;
-    gap: 20px;
+  .hall-map {
+    max-height: 72vh;
   }
 
   .hall-plan {
-    max-width: 100%;
+    max-width: none;
+    min-width: 1560px;
+    margin: 0;
+  }
+
+  .hall-plan__top {
+    grid-template-columns: 250px minmax(0, 1fr) 250px;
+    gap: 72px;
   }
 
   .hall-section--lodge-left,
   .hall-section--lodge-right {
-    margin-top: 0;
-    width: 100%;
+    margin-top: 82px;
+    width: 250px;
   }
 
   .hall-layout-row {
@@ -1389,18 +1403,12 @@ body[data-page="volunteer"] .scan-result {
   }
 
   .hall-layout-row__blocks {
-    overflow-x: auto;
-    padding-bottom: 6px;
+    overflow: visible;
+    padding-bottom: 0;
   }
 
   .hall-layout-block {
     flex-wrap: nowrap;
-  }
-
-  .seat--plan {
-    min-width: 14px;
-    min-height: 14px;
-    height: 14px;
   }
 
   .hall-section__title {
@@ -1425,24 +1433,15 @@ body[data-page="volunteer"] .scan-result {
   }
 
   .custom-hall__canvas {
-    --grid-cell: 10px;
+    --grid-cell: 13px;
     --grid-gap: 3px;
   }
 
   .custom-hall .seat--plan {
-    min-width: 10px;
-    min-height: 10px;
-    width: 10px;
-    height: 10px;
-  }
-
-  .custom-hall-label--section {
-    font-size: 0.78rem;
-  }
-
-  .custom-hall-label--row,
-  .custom-hall-label--custom {
-    font-size: 0.62rem;
+    min-width: 14px;
+    min-height: 14px;
+    width: 14px;
+    height: 14px;
   }
 
   .designer-label-card {
