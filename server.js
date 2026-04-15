@@ -6,6 +6,7 @@ const PORT = Number(process.env.PORT || 8080);
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
 const LAYOUT_FILE = path.join(DATA_DIR, "layout.json");
+const STATE_FILE = path.join(DATA_DIR, "state.json");
 const ADMIN_PASSWORD = "14MiMVVSU05";
 const ADMIN_REALM = 'Admin Panel';
 
@@ -30,6 +31,10 @@ function ensureDataFiles() {
 
   if (!fs.existsSync(LAYOUT_FILE)) {
     fs.writeFileSync(LAYOUT_FILE, "null", "utf8");
+  }
+
+  if (!fs.existsSync(STATE_FILE)) {
+    fs.writeFileSync(STATE_FILE, "null", "utf8");
   }
 }
 
@@ -126,6 +131,42 @@ const server = http.createServer((request, response) => {
           if (error) {
             response.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
             response.end(JSON.stringify({ error: "layout_write_failed" }));
+            return;
+          }
+
+          response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ ok: true }));
+        });
+      })
+      .catch(() => {
+        response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ error: "invalid_json" }));
+      });
+    return;
+  }
+
+  if (urlPath === "/api/state" && request.method === "GET") {
+    fs.readFile(STATE_FILE, "utf8", (error, content) => {
+      if (error) {
+        response.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ error: "state_read_failed" }));
+        return;
+      }
+
+      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      response.end(content || "null");
+    });
+    return;
+  }
+
+  if (urlPath === "/api/state" && request.method === "POST") {
+    readRequestBody(request)
+      .then((raw) => {
+        JSON.parse(raw || "null");
+        fs.writeFile(STATE_FILE, raw || "null", "utf8", (error) => {
+          if (error) {
+            response.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+            response.end(JSON.stringify({ error: "state_write_failed" }));
             return;
           }
 
