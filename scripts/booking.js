@@ -31,6 +31,7 @@ const sessionId = getSessionId();
 const deviceId = getDeviceId();
 let holdRefreshTimer = null;
 let remoteSyncTimer = null;
+let lastRemoteSyncAt = 0;
 
 async function fetchRemoteLayout() {
   const fileResponse = await fetch("./data/layout.json", { cache: "no-store" }).catch(() => null);
@@ -91,6 +92,7 @@ async function syncStateFromServer(options = {}) {
 
   const previousStamp = state?.lastUpdatedAt || "";
   state = saveState(remoteState);
+  lastRemoteSyncAt = Date.now();
   const nextStamp = state?.lastUpdatedAt || "";
   const changed = previousStamp !== nextStamp;
 
@@ -107,12 +109,16 @@ async function persistSharedState(nextState) {
 
   try {
     await saveRemoteState(state);
-    state = saveState(await fetchRemoteState() || state);
+    lastRemoteSyncAt = Date.now();
   } catch (error) {
     console.warn("Не удалось синхронизировать общее состояние зала.", error);
   }
 
   return state;
+}
+
+function shouldSyncBeforeAction(maxAgeMs = 2500) {
+  return !lastRemoteSyncAt || Date.now() - lastRemoteSyncAt > maxAgeMs;
 }
 
 function buildCustomSeatsFallback() {
@@ -913,7 +919,9 @@ function syncHoldRefresh() {
 async function handleSeatInteraction(seatId) {
   if (!seatId) return;
 
-  await syncStateFromServer();
+  if (shouldSyncBeforeAction()) {
+    await syncStateFromServer();
+  }
 
   if (selectedSeatIds.includes(seatId)) {
     selectedSeatIds = selectedSeatIds.filter((id) => id !== seatId);
@@ -967,8 +975,9 @@ bookingForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  await syncStateFromServer();
-  state = getState();
+  if (shouldSyncBeforeAction()) {
+    await syncStateFromServer();
+  }
   const conflict = attendees.some((attendee) => !isSeatAvailable(state, attendee.seatId, sessionId));
   if (conflict) {
     alert("Часть выбранных мест уже забронирована. Обновите выбор и попробуйте снова.");
