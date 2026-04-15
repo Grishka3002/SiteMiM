@@ -6,6 +6,7 @@ import {
   getStats,
   hydrateCustomLayout,
   resetState,
+  saveState,
   updateTicketStatus
 } from "./data.js";
 
@@ -32,6 +33,7 @@ let selectedLabelId = null;
 let designerMode = "seats";
 let paintMode = null;
 let isPointerDown = false;
+let remoteSyncTimer = null;
 
 async function fetchRemoteLayout() {
   const response = await fetch("/api/layout", { cache: "no-store" });
@@ -54,6 +56,35 @@ async function saveRemoteLayout(layout) {
   if (!response.ok) {
     throw new Error("Failed to save remote layout");
   }
+}
+
+async function fetchRemoteState() {
+  const response = await fetch("/api/state", { cache: "no-store" }).catch(() => null);
+  if (!response?.ok) {
+    return null;
+  }
+
+  return response.json().catch(() => null);
+}
+
+async function saveRemoteState(nextState) {
+  const response = await fetch("/api/state", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(nextState)
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to save shared state");
+  }
+}
+
+function applyState(nextState) {
+  state = saveState(nextState);
+  selectedCells = new Set((state.customLayout?.cells || []).map((cell) => `${cell.x}:${cell.y}`));
+  labels = (state.customLayout?.labels || []).map((label) => ({ ...label }));
 }
 
 function formatDate(dateIso) {
@@ -209,14 +240,12 @@ function saveDesignerLayout() {
     return { x, y };
   });
 
-  state = applyCustomLayout(state, {
+  applyState(applyCustomLayout(state, {
     rows: CUSTOM_LAYOUT_SIZE,
     cols: CUSTOM_LAYOUT_SIZE,
     cells,
     labels
-  });
-  selectedCells = new Set((state.customLayout?.cells || []).map((cell) => `${cell.x}:${cell.y}`));
-  labels = (state.customLayout?.labels || []).map((label) => ({ ...label }));
+  }));
   renderStats();
   renderTable();
   renderDesigner();
@@ -235,15 +264,49 @@ async function syncLayoutFromServer() {
       return;
     }
 
-    state = hydrateCustomLayout(state, remoteLayout);
-    selectedCells = new Set((state.customLayout?.cells || []).map((cell) => `${cell.x}:${cell.y}`));
-    labels = (state.customLayout?.labels || []).map((label) => ({ ...label }));
+    applyState(hydrateCustomLayout(state, remoteLayout));
     selectedLabelId = null;
     renderStats();
     renderTable();
     renderDesigner();
   } catch (error) {
     console.warn("Не удалось загрузить схему с сервера.", error);
+  }
+}
+
+async function syncSharedState(options = {}) {
+  const { forceRender = false } = options;
+  const remoteState = await fetchRemoteState();
+  if (!remoteState || typeof remoteState !== "object") {
+    return false;
+  }
+
+  const previousStamp = state?.lastUpdatedAt || "";
+  applyState(remoteState);
+  const nextStamp = state?.lastUpdatedAt || "";
+  const changed = previousStamp !== nextStamp;
+
+  if (changed || forceRender) {
+    selectedLabelId = null;
+    renderStats();
+    renderTable();
+    renderDesigner();
+  }
+
+  return changed;
+}
+
+async function persistSharedState(nextState) {
+  applyState(nextState);
+
+  try {
+    await saveRemoteState(state);
+    await syncSharedState({ forceRender: true });
+  } catch (error) {
+    console.warn("Не удалось синхронизировать общее состояние зала.", error);
+    renderStats();
+    renderTable();
+    renderDesigner();
   }
 }
 
@@ -298,15 +361,13 @@ designerModeButtons.forEach((button) => {
   button.addEventListener("click", () => setDesignerMode(button.dataset.designerMode));
 });
 
-tableBody.addEventListener("click", (event) => {
+tableBody.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-ticket-code]");
   if (!button) return;
 
   const { ticketCode, nextStatus } = button.dataset;
   const result = updateTicketStatus(state, ticketCode, nextStatus);
-  state = result.state;
-  renderStats();
-  renderTable();
+  await persistSharedState(result.state);
 });
 
 exportButton.addEventListener("click", () => {
@@ -337,15 +398,14 @@ exportButton.addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
-resetButton.addEventListener("click", () => {
+resetButton.addEventListener("click", async () => {
   const approved = window.confirm("Удалить все брони и вернуть зал в исходное состояние?");
   if (!approved) return;
 
   resetState();
-  state = getState();
-  selectedCells = new Set((state.customLayout?.cells || []).map((cell) => `${cell.x}:${cell.y}`));
-  labels = (state.customLayout?.labels || []).map((label) => ({ ...label }));
+  applyState(getState());
   selectedLabelId = null;
+  await saveRemoteState(state);
   renderStats();
   renderTable();
   renderDesigner();
@@ -354,9 +414,11 @@ resetButton.addEventListener("click", () => {
 designerSaveButton?.addEventListener("click", async () => {
   const approved = window.confirm("Сохранить новую схему? Текущие брони и удержания будут очищены.");
   if (!approved) return;
+
   saveDesignerLayout();
 
   try {
+    await saveRemoteState(state);
     await saveRemoteLayout(state.customLayout);
   } catch (error) {
     console.warn("Не удалось сохранить схему на сервере.", error);
@@ -441,9 +503,7 @@ window.addEventListener("pointerup", () => {
 });
 
 window.addEventListener("storage", () => {
-  state = getState();
-  selectedCells = new Set((state.customLayout?.cells || []).map((cell) => `${cell.x}:${cell.y}`));
-  labels = (state.customLayout?.labels || []).map((label) => ({ ...label }));
+  applyState(getState());
   selectedLabelId = null;
   renderStats();
   renderTable();
@@ -456,3 +516,8 @@ renderDesigner();
 setActiveTab("bookings");
 setDesignerMode("seats");
 syncLayoutFromServer();
+syncSharedState({ forceRender: true });
+window.clearInterval(remoteSyncTimer);
+remoteSyncTimer = window.setInterval(() => {
+  syncSharedState();
+}, 5000);

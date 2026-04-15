@@ -11,7 +11,8 @@
   holdSeat,
   isSeatAvailable,
   refreshSeatHolds,
-  releaseSeatHold
+  releaseSeatHold,
+  saveState
 } from "./data.js";
 
 const hallMap = document.getElementById("hall-map");
@@ -29,6 +30,7 @@ let selectedSeatIds = [];
 const sessionId = getSessionId();
 const deviceId = getDeviceId();
 let holdRefreshTimer = null;
+let remoteSyncTimer = null;
 
 async function fetchRemoteLayout() {
   const fileResponse = await fetch("./data/layout.json", { cache: "no-store" }).catch(() => null);
@@ -55,6 +57,62 @@ async function syncLayoutFromServer() {
   } catch (error) {
     console.warn("Не удалось загрузить схему зала.", error);
   }
+}
+
+async function fetchRemoteState() {
+  const response = await fetch("/api/state", { cache: "no-store" }).catch(() => null);
+  if (!response?.ok) {
+    return null;
+  }
+
+  return response.json().catch(() => null);
+}
+
+async function saveRemoteState(nextState) {
+  const response = await fetch("/api/state", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(nextState)
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to save shared state");
+  }
+}
+
+async function syncStateFromServer(options = {}) {
+  const { forceRender = false } = options;
+  const remoteState = await fetchRemoteState();
+  if (!remoteState || typeof remoteState !== "object") {
+    return false;
+  }
+
+  const previousStamp = state?.lastUpdatedAt || "";
+  state = saveState(remoteState);
+  const nextStamp = state?.lastUpdatedAt || "";
+  const changed = previousStamp !== nextStamp;
+
+  if (changed || forceRender) {
+    syncSelection();
+    renderDeviceTickets();
+  }
+
+  return changed;
+}
+
+async function persistSharedState(nextState) {
+  state = saveState(nextState);
+
+  try {
+    await saveRemoteState(state);
+    state = saveState(await fetchRemoteState() || state);
+  } catch (error) {
+    console.warn("Не удалось синхронизировать общее состояние зала.", error);
+  }
+
+  return state;
 }
 
 function buildCustomSeatsFallback() {
@@ -371,7 +429,7 @@ function buildTicketQrValue(ticket) {
 }
 
 function splitSeatLabel(seatLabel) {
-  const match = String(seatLabel).trim().match(/^([A-Za-zРђ-РЇР°-СЏ0-9]+)\s*-?\s*(\d+)$/);
+  const match = String(seatLabel).trim().match(/^([\p{L}0-9]+)\s*-?\s*(\d+)$/u);
   if (!match) {
     return {
       rowLabel: String(seatLabel).trim(),
@@ -844,25 +902,29 @@ function syncHoldRefresh() {
     return;
   }
 
-  holdRefreshTimer = window.setInterval(() => {
-    state = refreshSeatHolds(getState(), selectedSeatIds, sessionId);
+  holdRefreshTimer = window.setInterval(async () => {
+    await syncStateFromServer();
+    const refreshedState = refreshSeatHolds(getState(), selectedSeatIds, sessionId);
+    await persistSharedState(refreshedState);
     renderHall();
   }, 30000);
 }
 
-function handleSeatInteraction(seatId) {
+async function handleSeatInteraction(seatId) {
   if (!seatId) return;
+
+  await syncStateFromServer();
 
   if (selectedSeatIds.includes(seatId)) {
     selectedSeatIds = selectedSeatIds.filter((id) => id !== seatId);
-    state = releaseSeatHold(getState(), seatId, sessionId);
+    state = await persistSharedState(releaseSeatHold(getState(), seatId, sessionId));
   } else {
     const holdResult = holdSeat(getState(), seatId, sessionId);
-    state = holdResult.state;
     if (!holdResult.success) {
       syncSelection();
       return;
     }
+    state = await persistSharedState(holdResult.state);
     selectedSeatIds.push(seatId);
   }
 
@@ -880,7 +942,7 @@ hallMap.addEventListener("click", (event) => {
   handleSeatInteraction(target.dataset.seatId);
 });
 
-bookingForm.addEventListener("submit", (event) => {
+bookingForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   if (!selectedSeatIds.length) {
@@ -905,6 +967,7 @@ bookingForm.addEventListener("submit", (event) => {
     return;
   }
 
+  await syncStateFromServer();
   state = getState();
   const conflict = attendees.some((attendee) => !isSeatAvailable(state, attendee.seatId, sessionId));
   if (conflict) {
@@ -921,7 +984,7 @@ bookingForm.addEventListener("submit", (event) => {
     attendees
   });
 
-  state = result.state;
+  state = await persistSharedState(result.state);
   selectedSeatIds = [];
   bookingForm.reset();
   syncSelection();
@@ -1000,8 +1063,13 @@ window.addEventListener("beforeunload", () => {
 async function initializePage() {
   window.__vvguBookingInitialized = true;
   await syncLayoutFromServer();
+  await syncStateFromServer({ forceRender: true });
   syncSelection();
   renderDeviceTickets();
+  window.clearInterval(remoteSyncTimer);
+  remoteSyncTimer = window.setInterval(() => {
+    syncStateFromServer();
+  }, 5000);
 }
 
 initializePage();
