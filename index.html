@@ -21,7 +21,7 @@
     <section class="hero">
       <div class="hero__content paper-card">
         <p class="eyebrow">Конкурс таланта и красоты</p>
-        <h1 class="hero__title">Выберите места и получите билеты на «Мисс и Мистер ВВГУ 2026»</h1>
+        <h1 class="hero__title">Успей получить билеты на «Мисс и Мистер ВВГУ 2026»</h1>
         <p class="hero__text">
           Интерактивная схема зала, бронирование нескольких мест, ввод ФИО каждого зрителя и билеты с уникальным QR-кодом в одном окне.
         </p>
@@ -93,6 +93,25 @@
         </form>
       </aside>
     </main>
+
+    <section class="panel voting-panel paper-card" id="voting">
+      <div class="panel__header panel__header--wrap">
+        <div>
+          <p class="panel__kicker">Голосование</p>
+          <h2>Вице-мисс и Вице-мистер</h2>
+        </div>
+        <p class="muted vote-status" id="vote-status">Выберите одну девушку и одного парня.</p>
+      </div>
+      <form class="vote-auth" id="vote-auth-form">
+        <label class="field vote-auth__field">
+          <span>Номер билета или место</span>
+          <input type="text" id="vote-ticket-query" placeholder="Например: VVGU-2026-PRBES4 или B10-39" autocomplete="off" required />
+        </label>
+        <button type="submit" class="button button--ghost">Проверить билет</button>
+      </form>
+      <p class="vote-auth__result" id="vote-ticket-result">Голосовать может только зритель с действующим билетом.</p>
+      <div id="vote-root" class="voting-grid" aria-live="polite"></div>
+    </section>
 
     <section class="panel tickets-panel hidden paper-card" id="tickets-panel">
       <div class="panel__header">
@@ -345,6 +364,7 @@
       }, 400);
     })();
   </script>
+  <script type="module" src="./scripts/voting.js"></script>
   <script type="module" src="./scripts/booking.js"></script>
 </body>
 </html>
