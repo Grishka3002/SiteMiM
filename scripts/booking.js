@@ -561,9 +561,6 @@ function drawTemplateOverlay(context, ticket, qrImage, width, height) {
   const qrBoxSize = 302 * scaleX;
   const qrPad = 16 * scaleX;
 
-  context.fillStyle = "#ffffff";
-  context.fillRect(qrBoxX, qrBoxY, qrBoxSize, qrBoxSize);
-
   if (qrImage) {
     context.drawImage(qrImage, qrBoxX + qrPad, qrBoxY + qrPad, qrBoxSize - qrPad * 2, qrBoxSize - qrPad * 2);
   } else {
@@ -608,9 +605,6 @@ function drawFallbackTicket(context, ticket, qrImage, width, height) {
     context.fillText(line, contentLeft, detailY + index * 42);
   });
 
-  context.fillStyle = "#ffffff";
-  context.fillRect(qrX, qrY, 250, 250);
-
   if (qrImage) {
     context.drawImage(qrImage, qrX + 15, qrY + 15, 220, 220);
   }
@@ -626,6 +620,32 @@ function loadBrowserImage(url) {
   });
 }
 
+function makeWhitePixelsTransparent(image) {
+  const canvas = document.createElement("canvas");
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return image;
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+  const imageData = context.getImageData(0, 0, width, height);
+  const { data } = imageData;
+
+  for (let index = 0; index < data.length; index += 4) {
+    if (data[index] > 245 && data[index + 1] > 245 && data[index + 2] > 245) {
+      data[index + 3] = 0;
+    }
+  }
+
+  context.putImageData(imageData, 0, 0);
+  return loadBrowserImage(canvas.toDataURL("image/png"));
+}
+
 async function buildTicketOverlayDataUrl(ticket, options = {}) {
   const { width = 1240, height = 1754, hasTemplate = false } = options;
   const canvas = document.createElement("canvas");
@@ -638,8 +658,10 @@ async function buildTicketOverlayDataUrl(ticket, options = {}) {
   }
 
   const qrImage = await loadBrowserImage(
-    `https://quickchart.io/qr?size=500&text=${encodeURIComponent(buildTicketQrValue(ticket))}`
-  ).catch(() => null);
+    `https://quickchart.io/qr?size=500&margin=0&light=00000000&text=${encodeURIComponent(buildTicketQrValue(ticket))}`
+  )
+    .then((image) => makeWhitePixelsTransparent(image))
+    .catch(() => null);
 
   if (hasTemplate) {
     drawTemplateOverlay(context, ticket, qrImage, canvas.width, canvas.height);
@@ -1024,7 +1046,7 @@ function renderDeviceTickets(focusLatest = false) {
           <p class="ticket-card__name">${ticket.fullName}</p>
           <p class="ticket-card__meta">Группа: ${ticket.group}</p>
           <p class="ticket-card__meta">Статус: Забронирован</p>
-          <img class="ticket-card__qr" src="https://quickchart.io/qr?size=220&text=${encodeURIComponent(qrValue)}" alt="QR код билета ${ticket.code}" />
+          <img class="ticket-card__qr" src="https://quickchart.io/qr?size=220&margin=0&light=00000000&text=${encodeURIComponent(qrValue)}" alt="QR код билета ${ticket.code}" />
           <p class="ticket-card__code">Код билета: ${ticket.code}</p>
           <button type="button" class="button button--ghost ticket-card__download" data-ticket-code="${ticket.code}">Скачать билет</button>
         </article>
