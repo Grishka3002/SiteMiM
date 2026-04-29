@@ -346,6 +346,11 @@ textarea {
   gap: 24px;
 }
 
+.layout-grid > *,
+.page-shell > section {
+  min-width: 0;
+}
+
 .layout-grid--scanner {
   grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
 }
@@ -1095,8 +1100,8 @@ body[data-page="volunteer"] .scan-result {
 
 .vote-card:disabled {
   cursor: not-allowed;
-  filter: grayscale(0.65);
-  opacity: 0.58;
+  filter: none;
+  opacity: 0.96;
   transform: none;
 }
 
@@ -1515,16 +1520,63 @@ body[data-page="volunteer"] .scan-result {
     grid-template-columns: 1fr;
   }
 
+  .voting-panel {
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+  }
+
+  .voting-grid {
+    gap: 16px;
+  }
+
+  .vote-group {
+    padding: 12px;
+    border-radius: 22px;
+  }
+
+  .vote-group__heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .vote-group__heading h3 {
+    font-size: clamp(1.65rem, 1.15rem + 7vw, 2.4rem);
+  }
+
   .vote-list {
-    grid-auto-flow: column;
-    grid-auto-columns: clamp(150px, 64vw, 210px);
-    grid-template-columns: none;
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    overflow: visible;
+    padding-bottom: 0;
+    scroll-snap-type: none;
+  }
+
+  .vote-card {
+    padding: 8px;
+    border-radius: 18px;
+  }
+
+  .vote-card img {
+    border-radius: 13px;
+  }
+
+  .vote-card__caption {
+    min-height: 0;
+    font-size: 0.78rem;
+    line-height: 1.2;
+  }
+
+  .vote-card__meta {
+    font-size: 0.72rem;
   }
 
   .hero-chip,
   .stat-card,
-  .ticket-card,
-  .vote-card {
+  .ticket-card {
     scroll-snap-align: start;
   }
 
