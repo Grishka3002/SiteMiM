@@ -557,6 +557,10 @@ body[data-page="volunteer"] .scan-result {
   padding: 4px 6px 10px 4px;
 }
 
+.hall-map::after {
+  display: none;
+}
+
 #hall-map,
 #hall-map * {
   pointer-events: auto !important;
@@ -1604,6 +1608,30 @@ body[data-page="volunteer"] .scan-result {
     contain: layout paint;
   }
 
+  .hall-map.hall-map--hint-visible::after {
+    content: "☝  Листайте схему ← →";
+    display: block;
+    position: sticky;
+    top: 12px;
+    left: 50%;
+    z-index: 60;
+    width: max-content;
+    max-width: calc(100vw - 40px);
+    margin: 0 auto -44px;
+    padding: 10px 14px;
+    border-radius: 999px;
+    color: #fff;
+    font-size: 0.86rem;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    text-align: center;
+    background: rgba(10, 12, 22, 0.84);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
+    pointer-events: none;
+    animation: hall-scroll-hint 4.8s ease both;
+  }
+
   .hall-plan {
     max-width: none;
     min-width: 1560px;
@@ -1728,5 +1756,23 @@ body[data-page="volunteer"] .scan-result {
   .ticket-card {
     break-inside: avoid;
     background: #111;
+  }
+}
+
+@keyframes hall-scroll-hint {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+
+  12%,
+  72% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
   }
 }
