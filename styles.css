@@ -1201,6 +1201,16 @@ body[data-page="volunteer"] .scan-result {
   font-size: 0.86rem;
 }
 
+.ticket-download-status {
+  margin: 0;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.ticket-download-status--error {
+  color: #ff8d8d;
+}
+
 .subsite-intro {
   margin-bottom: 24px;
 }
