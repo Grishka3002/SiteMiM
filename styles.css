@@ -1188,6 +1188,19 @@ body[data-page="volunteer"] .scan-result {
   z-index: 1;
 }
 
+.ticket-download-result {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ticket-download-result .muted {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
 .subsite-intro {
   margin-bottom: 24px;
 }
