@@ -34,6 +34,8 @@ let remoteSyncTimer = null;
 let lastRemoteSyncAt = 0;
 let didAutoCenterHallOnMobile = false;
 let renderedAttendeeFieldsKey = "";
+const ALL_TICKETS_DOWNLOAD_KEY = "__all_tickets__";
+const ticketDownloadStates = new Map();
 
 async function fetchRemoteLayout() {
   const fileResponse = await fetch("./data/layout.json", { cache: "no-store" }).catch(() => null);
@@ -519,22 +521,62 @@ function triggerFileDownload(blob, filename, targetWindow = null) {
   }, 1500);
 }
 
-function showPdfDownloadLink(container, blob, filename) {
-  if (!container) {
-    triggerFileDownload(blob, filename);
-    return;
+function getPdfDownloadMarkup(downloadState) {
+  if (!downloadState) {
+    return "";
   }
 
-  if (container.dataset.objectUrl) {
-    URL.revokeObjectURL(container.dataset.objectUrl);
+  if (downloadState.status === "preparing") {
+    return '<p class="ticket-download-status">Готовим PDF...</p>';
   }
 
-  const url = URL.createObjectURL(blob);
-  container.dataset.objectUrl = url;
-  container.innerHTML = `
-    <a class="button button--primary button--full" href="${url}" download="${filename}" target="_blank" rel="noopener">Открыть / скачать PDF</a>
+  if (downloadState.status === "error") {
+    return '<p class="ticket-download-status ticket-download-status--error">Не удалось подготовить PDF. Нажмите скачать ещё раз.</p>';
+  }
+
+  if (downloadState.status === "ready") {
+    return `
+    <a class="button button--primary button--full" href="${downloadState.url}" download="${downloadState.filename}" target="_blank" rel="noopener">Открыть / скачать PDF</a>
     <p class="muted">Если файл не скачался автоматически, нажмите эту кнопку. На iPhone PDF обычно откроется в новой вкладке, откуда его можно сохранить или отправить.</p>
   `;
+  }
+
+  return "";
+}
+
+function renderDownloadState(key) {
+  const selector =
+    key === ALL_TICKETS_DOWNLOAD_KEY
+      ? "#all-tickets-download-result"
+      : `[data-ticket-download-result="${key}"]`;
+  const container = document.querySelector(selector);
+  if (container) {
+    container.innerHTML = getPdfDownloadMarkup(ticketDownloadStates.get(key));
+  }
+}
+
+function setDownloadState(key, nextState) {
+  const previousState = ticketDownloadStates.get(key);
+  if (previousState?.url && previousState.url !== nextState?.url) {
+    URL.revokeObjectURL(previousState.url);
+  }
+
+  if (nextState) {
+    ticketDownloadStates.set(key, nextState);
+  } else {
+    ticketDownloadStates.delete(key);
+  }
+
+  renderDownloadState(key);
+}
+
+function showPdfDownloadLink(key, blob, filename) {
+  const url = URL.createObjectURL(blob);
+  setDownloadState(key, {
+    status: "ready",
+    url,
+    filename
+  });
 }
 
 function getAllTicketsDownloadResult() {
@@ -548,8 +590,9 @@ function getAllTicketsDownloadResult() {
   return container;
 }
 
-async function runTicketDownload(button, resultContainer, task) {
+async function runTicketDownload(key, button, task) {
   const originalText = button?.textContent || "";
+  setDownloadState(key, { status: "preparing" });
 
   if (button) {
     button.disabled = true;
@@ -558,7 +601,10 @@ async function runTicketDownload(button, resultContainer, task) {
 
   try {
     const { blob, filename } = await task();
-    showPdfDownloadLink(resultContainer, blob, filename);
+    showPdfDownloadLink(key, blob, filename);
+  } catch (error) {
+    console.error(error);
+    setDownloadState(key, { status: "error" });
   } finally {
     if (button) {
       button.disabled = false;
@@ -1186,6 +1232,8 @@ function renderDeviceTickets(focusLatest = false) {
     .map((ticket) => {
       const qrValue = buildTicketQrValue(ticket);
       const seatText = ticket.seatDisplayLabel || ticket.seatLabel;
+      const downloadState = ticketDownloadStates.get(ticket.code);
+      const isPreparingPdf = downloadState?.status === "preparing";
 
       return `
         <article class="ticket-card">
@@ -1196,8 +1244,8 @@ function renderDeviceTickets(focusLatest = false) {
           <p class="ticket-card__meta">Статус: Забронирован</p>
           <img class="ticket-card__qr" src="https://quickchart.io/qr?size=220&margin=0&light=00000000&text=${encodeURIComponent(qrValue)}" alt="QR код билета ${ticket.code}" />
           <p class="ticket-card__code">Код билета: ${ticket.code}</p>
-          <button type="button" class="button button--ghost ticket-card__download" data-ticket-code="${ticket.code}">Скачать билет</button>
-          <div class="ticket-download-result" data-ticket-download-result="${ticket.code}"></div>
+          <button type="button" class="button button--ghost ticket-card__download" data-ticket-code="${ticket.code}" ${isPreparingPdf ? "disabled" : ""}>${isPreparingPdf ? "Готовим PDF..." : "Скачать билет"}</button>
+          <div class="ticket-download-result" data-ticket-download-result="${ticket.code}">${getPdfDownloadMarkup(downloadState)}</div>
         </article>
       `;
     })
@@ -1206,6 +1254,8 @@ function renderDeviceTickets(focusLatest = false) {
   if (focusLatest) {
     ticketsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+
+  renderDownloadState(ALL_TICKETS_DOWNLOAD_KEY);
 }
 
 downloadAllTicketsButton?.addEventListener("click", async () => {
@@ -1214,7 +1264,8 @@ downloadAllTicketsButton?.addEventListener("click", async () => {
     return;
   }
 
-  await runTicketDownload(downloadAllTicketsButton, getAllTicketsDownloadResult(), () =>
+  getAllTicketsDownloadResult();
+  await runTicketDownload(ALL_TICKETS_DOWNLOAD_KEY, downloadAllTicketsButton, () =>
     prepareTicketsDownload(tickets, "tickets.pdf")
   );
 });
@@ -1226,8 +1277,7 @@ ticketsOutput.addEventListener("click", async (event) => {
   const tickets = getTicketsByDevice(state, deviceId);
   const ticket = tickets.find((item) => item.code === button.dataset.ticketCode);
   if (ticket) {
-    const resultContainer = ticketsOutput.querySelector(`[data-ticket-download-result="${ticket.code}"]`);
-    await runTicketDownload(button, resultContainer, () => prepareTicketDownload(ticket));
+    await runTicketDownload(ticket.code, button, () => prepareTicketDownload(ticket));
   }
 });
 
