@@ -562,7 +562,7 @@ export function createBooking(state, payload) {
     seatLabel: attendee.seatLabel,
     seatDisplayLabel: attendee.seatDisplayLabel,
     fullName: attendee.fullName.trim(),
-    group: attendee.group.trim(),
+    group: String(attendee.group || "").trim(),
     issuedDeviceId: payload.deviceId,
     status: "booked",
     checkedInAt: null,

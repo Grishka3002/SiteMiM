@@ -33,6 +33,7 @@ let holdRefreshTimer = null;
 let remoteSyncTimer = null;
 let lastRemoteSyncAt = 0;
 let didAutoCenterHallOnMobile = false;
+let renderedAttendeeFieldsKey = "";
 
 async function fetchRemoteLayout() {
   const fileResponse = await fetch("./data/layout.json", { cache: "no-store" }).catch(() => null);
@@ -493,11 +494,21 @@ async function loadTemplatePdfBytes() {
   return tryFetchBytes("./images/ticket.pdf");
 }
 
-function triggerFileDownload(blob, filename) {
+function triggerFileDownload(blob, filename, targetWindow = null) {
   const url = URL.createObjectURL(blob);
+
+  if (targetWindow && !targetWindow.closed) {
+    targetWindow.location.href = url;
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 60000);
+    return;
+  }
+
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  link.target = "_blank";
   link.rel = "noopener";
   document.body.append(link);
   link.click();
@@ -506,6 +517,33 @@ function triggerFileDownload(blob, filename) {
   window.setTimeout(() => {
     URL.revokeObjectURL(url);
   }, 1500);
+}
+
+function openDownloadWindow() {
+  return window.open("about:blank", "_blank");
+}
+
+async function runTicketDownload(button, task) {
+  const originalText = button?.textContent || "";
+  const targetWindow = openDownloadWindow();
+
+  if (targetWindow && !targetWindow.closed) {
+    targetWindow.document.write("<p style=\"font-family: sans-serif; padding: 24px;\">Готовим билет...</p>");
+  }
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Готовим PDF...";
+  }
+
+  try {
+    await task(targetWindow);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
 }
 
 function drawFallbackCanvasBackground(context, width, height) {
@@ -546,7 +584,9 @@ function drawTemplateOverlay(context, ticket, qrImage, width, height) {
   });
 
   context.font = `700 ${28 * scaleY}px Manrope, Arial, sans-serif`;
-  context.fillText(`Группа: ${ticket.group}`, contentCenter, 446 * scaleY);
+  if (ticket.group) {
+    context.fillText(`Группа: ${ticket.group}`, contentCenter, 446 * scaleY);
+  }
 
   context.font = `600 ${22 * scaleY}px Manrope, Arial, sans-serif`;
   context.fillStyle = "#3d3f49";
@@ -597,10 +637,13 @@ function drawFallbackTicket(context, ticket, qrImage, width, height) {
   context.font = "600 28px Manrope, Arial, sans-serif";
   const details = [
     `ФИО: ${ticket.fullName}`,
-    `Группа: ${ticket.group}`,
     `Место: ${ticket.seatDisplayLabel || ticket.seatLabel}`,
     `Номер билета: ${ticket.code}`
   ];
+
+  if (ticket.group) {
+    details.splice(1, 0, `Группа: ${ticket.group}`);
+  }
 
   details.forEach((line, index) => {
     context.fillText(line, contentLeft, detailY + index * 42);
@@ -673,54 +716,17 @@ async function buildTicketOverlayDataUrl(ticket, options = {}) {
   return canvas.toDataURL("image/png");
 }
 
-async function downloadTicket(ticket) {
-  const PDFLib = window.PDFLib;
-  if (!PDFLib) {
-    alert("PDF-библиотека ещё не загрузилась. Обновите страницу и попробуйте снова.");
-    return;
-  }
+async function addTicketPageToPdf(pdfDoc, ticket, templateBytes = null) {
+  if (templateBytes) {
+    const templateDoc = await PDFLib.PDFDocument.load(templateBytes);
+    const [page] = await pdfDoc.copyPages(templateDoc, [0]);
+    pdfDoc.addPage(page);
 
-  const { PDFDocument } = PDFLib;
-
-  try {
-    const templateBytes = await loadTemplatePdfBytes();
-
-    if (templateBytes) {
-      const pdfDoc = await PDFDocument.load(templateBytes);
-      let page = pdfDoc.getPages()[0];
-
-      if (!page) {
-        page = pdfDoc.addPage([1260, 472.56]);
-      }
-
-      const { width, height } = page.getSize();
-      const overlayDataUrl = await buildTicketOverlayDataUrl(ticket, {
-        width: width * 2,
-        height: height * 2,
-        hasTemplate: true
-      });
-      const overlayBytes = await fetch(overlayDataUrl).then((response) => response.arrayBuffer());
-      const overlayImage = await pdfDoc.embedPng(overlayBytes);
-
-      page.drawImage(overlayImage, {
-        x: 0,
-        y: 0,
-        width,
-        height
-      });
-
-      const pdfBytes = await pdfDoc.save();
-      triggerFileDownload(new Blob([pdfBytes], { type: "application/pdf" }), `${ticket.code}.pdf`);
-      return;
-    }
-
-    const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595.28, 841.89]);
     const { width, height } = page.getSize();
     const overlayDataUrl = await buildTicketOverlayDataUrl(ticket, {
-      width: 1240,
-      height: 1754,
-      hasTemplate: false
+      width: width * 2,
+      height: height * 2,
+      hasTemplate: true
     });
     const overlayBytes = await fetch(overlayDataUrl).then((response) => response.arrayBuffer());
     const overlayImage = await pdfDoc.embedPng(overlayBytes);
@@ -731,13 +737,69 @@ async function downloadTicket(ticket) {
       width,
       height
     });
+    return;
+  }
 
-    const pdfBytes = await pdfDoc.save();
-    triggerFileDownload(new Blob([pdfBytes], { type: "application/pdf" }), `${ticket.code}.pdf`);
+  const page = pdfDoc.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+  const overlayDataUrl = await buildTicketOverlayDataUrl(ticket, {
+    width: 1240,
+    height: 1754,
+    hasTemplate: false
+  });
+  const overlayBytes = await fetch(overlayDataUrl).then((response) => response.arrayBuffer());
+  const overlayImage = await pdfDoc.embedPng(overlayBytes);
+
+  page.drawImage(overlayImage, {
+    x: 0,
+    y: 0,
+    width,
+    height
+  });
+}
+
+async function buildTicketsPdfBlob(tickets) {
+  const PDFLib = window.PDFLib;
+  if (!PDFLib) {
+    throw new Error("PDF library is unavailable");
+  }
+
+  const { PDFDocument } = PDFLib;
+  const templateBytes = await loadTemplatePdfBytes();
+  const pdfDoc = await PDFDocument.create();
+
+  for (const ticket of tickets) {
+    await addTicketPageToPdf(pdfDoc, ticket, templateBytes);
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  return new Blob([pdfBytes], { type: "application/pdf" });
+}
+
+async function downloadTickets(tickets, filename, targetWindow = null) {
+  const PDFLib = window.PDFLib;
+  if (!PDFLib) {
+    alert("PDF-библиотека ещё не загрузилась. Обновите страницу и попробуйте снова.");
+    if (targetWindow && !targetWindow.closed) {
+      targetWindow.close();
+    }
+    return;
+  }
+
+  try {
+    const blob = await buildTicketsPdfBlob(tickets);
+    triggerFileDownload(blob, filename, targetWindow);
   } catch (error) {
     console.error(error);
+    if (targetWindow && !targetWindow.closed) {
+      targetWindow.close();
+    }
     alert("Не удалось скачать PDF-билет. Попробуйте ещё раз.");
   }
+}
+
+async function downloadTicket(ticket, targetWindow = null) {
+  await downloadTickets([ticket], `${ticket.code}.pdf`, targetWindow);
 }
 
 function renderSeatButton(seat, seatStatusMap) {
@@ -922,7 +984,6 @@ function getCurrentAttendeeValues() {
 
   selectedSeatIds.forEach((seatId) => {
     values[`fullName-${seatId}`] = String(formData.get(`fullName-${seatId}`) || "");
-    values[`group-${seatId}`] = String(formData.get(`group-${seatId}`) || "");
   });
 
   return values;
@@ -938,16 +999,24 @@ function escapeAttribute(value) {
 
 function renderSelection() {
   const seats = selectedSeatIds.map(getSeatById).filter(Boolean);
+  const selectionKey = seats.map((seat) => seat.id).join("|");
   const attendeeValues = getCurrentAttendeeValues();
   selectionCount.textContent = `${seats.length} ${pluralizeSeats(seats.length)}`;
 
   if (!seats.length) {
     selectionSummary.textContent = "Выберите хотя бы одно место на схеме зала.";
     attendeesFields.innerHTML = "";
+    renderedAttendeeFieldsKey = "";
     return;
   }
 
   selectionSummary.innerHTML = `Вы выбрали: <strong>${seats.map((seat) => formatSeatDisplay(seat)).join("; ")}</strong>`;
+
+  if (selectionKey === renderedAttendeeFieldsKey) {
+    return;
+  }
+
+  renderedAttendeeFieldsKey = selectionKey;
   attendeesFields.innerHTML = seats
     .map(
       (seat, index) => `
@@ -959,10 +1028,6 @@ function renderSelection() {
           <label class="field">
             <span>ФИО</span>
             <input type="text" name="fullName-${seat.id}" value="${escapeAttribute(attendeeValues[`fullName-${seat.id}`] || "")}" placeholder="Иванов Иван Иванович" required />
-          </label>
-          <label class="field">
-            <span>Группа</span>
-            <input type="text" name="group-${seat.id}" value="${escapeAttribute(attendeeValues[`group-${seat.id}`] || "")}" placeholder="Б-211" required />
           </label>
         </section>
       `
@@ -1055,12 +1120,12 @@ bookingForm.addEventListener("submit", async (event) => {
       seatLabel: seat.ticketLabel,
       seatDisplayLabel: formatSeatDisplay(seat),
       fullName: String(formData.get(`fullName-${seatId}`) || ""),
-      group: String(formData.get(`group-${seatId}`) || "")
+      group: ""
     };
   });
 
-  if (attendees.some((attendee) => !attendee.fullName.trim() || !attendee.group.trim())) {
-    alert("Заполните ФИО и группу для каждого выбранного места.");
+  if (attendees.some((attendee) => !attendee.fullName.trim())) {
+    alert("Заполните ФИО для каждого выбранного места.");
     return;
   }
 
@@ -1111,7 +1176,7 @@ function renderDeviceTickets(focusLatest = false) {
           <p class="panel__kicker">${state.event.title}</p>
           <p class="ticket-card__seat">${seatText}</p>
           <p class="ticket-card__name">${ticket.fullName}</p>
-          <p class="ticket-card__meta">Группа: ${ticket.group}</p>
+          ${ticket.group ? `<p class="ticket-card__meta">Группа: ${ticket.group}</p>` : ""}
           <p class="ticket-card__meta">Статус: Забронирован</p>
           <img class="ticket-card__qr" src="https://quickchart.io/qr?size=220&margin=0&light=00000000&text=${encodeURIComponent(qrValue)}" alt="QR код билета ${ticket.code}" />
           <p class="ticket-card__code">Код билета: ${ticket.code}</p>
@@ -1128,9 +1193,13 @@ function renderDeviceTickets(focusLatest = false) {
 
 downloadAllTicketsButton?.addEventListener("click", async () => {
   const tickets = getTicketsByDevice(state, deviceId);
-  for (const ticket of tickets) {
-    await downloadTicket(ticket);
+  if (!tickets.length) {
+    return;
   }
+
+  await runTicketDownload(downloadAllTicketsButton, (targetWindow) =>
+    downloadTickets(tickets, "tickets.pdf", targetWindow)
+  );
 });
 
 ticketsOutput.addEventListener("click", async (event) => {
@@ -1140,7 +1209,7 @@ ticketsOutput.addEventListener("click", async (event) => {
   const tickets = getTicketsByDevice(state, deviceId);
   const ticket = tickets.find((item) => item.code === button.dataset.ticketCode);
   if (ticket) {
-    await downloadTicket(ticket);
+    await runTicketDownload(button, (targetWindow) => downloadTicket(ticket, targetWindow));
   }
 });
 
