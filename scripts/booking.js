@@ -32,6 +32,7 @@ const deviceId = getDeviceId();
 let holdRefreshTimer = null;
 let remoteSyncTimer = null;
 let lastRemoteSyncAt = 0;
+let didAutoCenterHallOnMobile = false;
 
 async function fetchRemoteLayout() {
   const fileResponse = await fetch("./data/layout.json", { cache: "no-store" }).catch(() => null);
@@ -860,6 +861,36 @@ function renderPresetHall(seatStatusMap) {
   `;
 }
 
+function isMobileViewport() {
+  return window.matchMedia?.("(max-width: 720px)").matches;
+}
+
+function replayHallScrollHint() {
+  if (!hallMap || !isMobileViewport()) {
+    return;
+  }
+
+  hallMap.classList.remove("hall-map--hint-visible");
+  // Force the CSS animation to restart when the user reaches the hall block again.
+  void hallMap.offsetWidth;
+  hallMap.classList.add("hall-map--hint-visible");
+}
+
+function centerHallMapOnMobile() {
+  if (didAutoCenterHallOnMobile || !isMobileViewport()) {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    const horizontalOverflow = hallMap.scrollWidth - hallMap.clientWidth;
+    if (horizontalOverflow > 0) {
+      hallMap.scrollLeft = Math.round(horizontalOverflow / 2);
+    }
+    didAutoCenterHallOnMobile = true;
+    replayHallScrollHint();
+  });
+}
+
 function renderHall() {
   const seatStatusMap = getSeatStatusMap(state.bookings, state.holds, sessionId);
   const renderableSeats = getRenderableSeats();
@@ -882,10 +913,32 @@ function renderHall() {
     }
   }
 
+  centerHallMapOnMobile();
+}
+
+function getCurrentAttendeeValues() {
+  const values = {};
+  const formData = new FormData(bookingForm);
+
+  selectedSeatIds.forEach((seatId) => {
+    values[`fullName-${seatId}`] = String(formData.get(`fullName-${seatId}`) || "");
+    values[`group-${seatId}`] = String(formData.get(`group-${seatId}`) || "");
+  });
+
+  return values;
+}
+
+function escapeAttribute(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function renderSelection() {
   const seats = selectedSeatIds.map(getSeatById).filter(Boolean);
+  const attendeeValues = getCurrentAttendeeValues();
   selectionCount.textContent = `${seats.length} ${pluralizeSeats(seats.length)}`;
 
   if (!seats.length) {
@@ -905,11 +958,11 @@ function renderSelection() {
           </div>
           <label class="field">
             <span>ФИО</span>
-            <input type="text" name="fullName-${seat.id}" placeholder="Иванов Иван Иванович" required />
+            <input type="text" name="fullName-${seat.id}" value="${escapeAttribute(attendeeValues[`fullName-${seat.id}`] || "")}" placeholder="Иванов Иван Иванович" required />
           </label>
           <label class="field">
             <span>Группа</span>
-            <input type="text" name="group-${seat.id}" placeholder="Б-211" required />
+            <input type="text" name="group-${seat.id}" value="${escapeAttribute(attendeeValues[`group-${seat.id}`] || "")}" placeholder="Б-211" required />
           </label>
         </section>
       `
@@ -971,6 +1024,20 @@ hallMap.addEventListener("click", (event) => {
   event.stopPropagation();
   handleSeatInteraction(target.dataset.seatId);
 });
+
+if ("IntersectionObserver" in window) {
+  const hallHintObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          replayHallScrollHint();
+        }
+      });
+    },
+    { threshold: 0.35 }
+  );
+  hallHintObserver.observe(hallMap);
+}
 
 bookingForm.addEventListener("submit", async (event) => {
   event.preventDefault();
