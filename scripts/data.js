@@ -611,6 +611,18 @@ export function updateTicketStatus(state, ticketCode, status) {
   return { state: saveState(nextState), ticket: updatedTicket };
 }
 
+export function deleteBooking(state, bookingId) {
+  const nextState = clone(state);
+  const deletedBooking = nextState.bookings.find((booking) => booking.id === bookingId) || null;
+
+  if (!deletedBooking) {
+    return { state, booking: null };
+  }
+
+  nextState.bookings = nextState.bookings.filter((booking) => booking.id !== bookingId);
+  return { state: saveState(nextState), booking: deletedBooking };
+}
+
 export function findTicketByCode(state, code) {
   for (const booking of state.bookings) {
     for (const ticket of booking.tickets) {

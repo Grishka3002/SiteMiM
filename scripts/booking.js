@@ -519,17 +519,37 @@ function triggerFileDownload(blob, filename, targetWindow = null) {
   }, 1500);
 }
 
-function openDownloadWindow() {
-  return window.open("about:blank", "_blank");
+function showPdfDownloadLink(container, blob, filename) {
+  if (!container) {
+    triggerFileDownload(blob, filename);
+    return;
+  }
+
+  if (container.dataset.objectUrl) {
+    URL.revokeObjectURL(container.dataset.objectUrl);
+  }
+
+  const url = URL.createObjectURL(blob);
+  container.dataset.objectUrl = url;
+  container.innerHTML = `
+    <a class="button button--primary button--full" href="${url}" download="${filename}" target="_blank" rel="noopener">Открыть / скачать PDF</a>
+    <p class="muted">Если файл не скачался автоматически, нажмите эту кнопку. На iPhone PDF обычно откроется в новой вкладке, откуда его можно сохранить или отправить.</p>
+  `;
 }
 
-async function runTicketDownload(button, task) {
-  const originalText = button?.textContent || "";
-  const targetWindow = openDownloadWindow();
-
-  if (targetWindow && !targetWindow.closed) {
-    targetWindow.document.write("<p style=\"font-family: sans-serif; padding: 24px;\">Готовим билет...</p>");
+function getAllTicketsDownloadResult() {
+  let container = document.getElementById("all-tickets-download-result");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "all-tickets-download-result";
+    container.className = "ticket-download-result";
+    ticketsBookingMeta.insertAdjacentElement("afterend", container);
   }
+  return container;
+}
+
+async function runTicketDownload(button, resultContainer, task) {
+  const originalText = button?.textContent || "";
 
   if (button) {
     button.disabled = true;
@@ -537,7 +557,8 @@ async function runTicketDownload(button, task) {
   }
 
   try {
-    await task(targetWindow);
+    const { blob, filename } = await task();
+    showPdfDownloadLink(resultContainer, blob, filename);
   } finally {
     if (button) {
       button.disabled = false;
@@ -776,30 +797,25 @@ async function buildTicketsPdfBlob(tickets) {
   return new Blob([pdfBytes], { type: "application/pdf" });
 }
 
-async function downloadTickets(tickets, filename, targetWindow = null) {
+async function prepareTicketsDownload(tickets, filename) {
   const PDFLib = window.PDFLib;
   if (!PDFLib) {
     alert("PDF-библиотека ещё не загрузилась. Обновите страницу и попробуйте снова.");
-    if (targetWindow && !targetWindow.closed) {
-      targetWindow.close();
-    }
-    return;
+    throw new Error("PDF library is unavailable");
   }
 
   try {
     const blob = await buildTicketsPdfBlob(tickets);
-    triggerFileDownload(blob, filename, targetWindow);
+    return { blob, filename };
   } catch (error) {
     console.error(error);
-    if (targetWindow && !targetWindow.closed) {
-      targetWindow.close();
-    }
     alert("Не удалось скачать PDF-билет. Попробуйте ещё раз.");
+    throw error;
   }
 }
 
-async function downloadTicket(ticket, targetWindow = null) {
-  await downloadTickets([ticket], `${ticket.code}.pdf`, targetWindow);
+async function prepareTicketDownload(ticket) {
+  return prepareTicketsDownload([ticket], `${ticket.code}.pdf`);
 }
 
 function renderSeatButton(seat, seatStatusMap) {
@@ -1181,6 +1197,7 @@ function renderDeviceTickets(focusLatest = false) {
           <img class="ticket-card__qr" src="https://quickchart.io/qr?size=220&margin=0&light=00000000&text=${encodeURIComponent(qrValue)}" alt="QR код билета ${ticket.code}" />
           <p class="ticket-card__code">Код билета: ${ticket.code}</p>
           <button type="button" class="button button--ghost ticket-card__download" data-ticket-code="${ticket.code}">Скачать билет</button>
+          <div class="ticket-download-result" data-ticket-download-result="${ticket.code}"></div>
         </article>
       `;
     })
@@ -1197,8 +1214,8 @@ downloadAllTicketsButton?.addEventListener("click", async () => {
     return;
   }
 
-  await runTicketDownload(downloadAllTicketsButton, (targetWindow) =>
-    downloadTickets(tickets, "tickets.pdf", targetWindow)
+  await runTicketDownload(downloadAllTicketsButton, getAllTicketsDownloadResult(), () =>
+    prepareTicketsDownload(tickets, "tickets.pdf")
   );
 });
 
@@ -1209,7 +1226,8 @@ ticketsOutput.addEventListener("click", async (event) => {
   const tickets = getTicketsByDevice(state, deviceId);
   const ticket = tickets.find((item) => item.code === button.dataset.ticketCode);
   if (ticket) {
-    await runTicketDownload(button, (targetWindow) => downloadTicket(ticket, targetWindow));
+    const resultContainer = ticketsOutput.querySelector(`[data-ticket-download-result="${ticket.code}"]`);
+    await runTicketDownload(button, resultContainer, () => prepareTicketDownload(ticket));
   }
 });
 

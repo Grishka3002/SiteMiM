@@ -1,6 +1,7 @@
 import {
   CUSTOM_LAYOUT_SIZE,
   applyCustomLayout,
+  deleteBooking,
   flattenTickets,
   getState,
   getStats,
@@ -166,6 +167,7 @@ function renderTable() {
               <td><span class="${statusClass}">${statusText}</span></td>
               <td>
                 <button class="button button--ghost" data-ticket-code="${ticket.code}" data-next-status="${nextStatus}">${actionLabel}</button>
+                <button class="button button--danger" data-booking-delete="${ticket.bookingId}" data-booking-label="${ticket.code}">Удалить бронь</button>
                 <div class="muted">${ticket.checkedInAt ? formatDate(ticket.checkedInAt) : "ещё не отмечен"}</div>
               </td>
             </tr>
@@ -362,6 +364,21 @@ designerModeButtons.forEach((button) => {
 });
 
 tableBody.addEventListener("click", async (event) => {
+  const deleteButton = event.target.closest("[data-booking-delete]");
+  if (deleteButton) {
+    const approved = window.confirm(`Удалить бронь ${deleteButton.dataset.bookingLabel}? Места снова станут свободными.`);
+    if (!approved) return;
+
+    const result = deleteBooking(state, deleteButton.dataset.bookingDelete);
+    if (!result.booking) {
+      alert("Бронь не найдена. Обновите страницу и попробуйте ещё раз.");
+      return;
+    }
+
+    await persistSharedState(result.state);
+    return;
+  }
+
   const button = event.target.closest("[data-ticket-code]");
   if (!button) return;
 
