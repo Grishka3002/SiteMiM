@@ -1248,6 +1248,18 @@ body[data-page="volunteer"] .scan-result {
   flex-wrap: wrap;
 }
 
+.admin-ticket-generator {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.admin-ticket-generator .field,
+.admin-ticket-generator .muted {
+  margin: 0;
+}
+
 .admin-tab.is-active {
   background: linear-gradient(135deg, var(--blue), #1d2a7d);
   border-color: transparent;
@@ -1752,8 +1764,14 @@ body[data-page="volunteer"] .scan-result {
 
   .tickets-actions .button,
   .toolbar .button,
-  .toolbar .input {
+  .toolbar .input,
+  .admin-ticket-generator .button,
+  .admin-ticket-generator .input {
     width: 100%;
+  }
+
+  .admin-ticket-generator {
+    grid-template-columns: 1fr;
   }
 }
 
