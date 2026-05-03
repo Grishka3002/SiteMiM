@@ -579,6 +579,15 @@ function showPdfDownloadLink(key, blob, filename) {
   });
 }
 
+function buildQrImageUrls(value, options = {}) {
+  const { size = 500, dark = "000000", light = "00000000" } = options;
+  const encodedValue = encodeURIComponent(value);
+  return [
+    `https://quickchart.io/qr?size=${size}&margin=0&dark=${dark}&light=${light}&text=${encodedValue}`,
+    `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=0&color=${dark}&bgcolor=${light}&data=${encodedValue}`
+  ];
+}
+
 function getAllTicketsDownloadResult() {
   let container = document.getElementById("all-tickets-download-result");
   if (!container) {
@@ -731,6 +740,17 @@ function loadBrowserImage(url) {
   });
 }
 
+async function loadFirstAvailableImage(urls) {
+  for (const url of urls) {
+    const image = await loadBrowserImage(url).catch(() => null);
+    if (image) {
+      return image;
+    }
+  }
+
+  return null;
+}
+
 function makeWhitePixelsTransparent(image) {
   const canvas = document.createElement("canvas");
   const width = image.naturalWidth || image.width;
@@ -768,10 +788,10 @@ async function buildTicketOverlayDataUrl(ticket, options = {}) {
     throw new Error("Canvas context is unavailable");
   }
 
-  const qrImage = await loadBrowserImage(
-    `https://quickchart.io/qr?size=500&margin=0&light=00000000&text=${encodeURIComponent(buildTicketQrValue(ticket))}`
+  const qrImage = await loadFirstAvailableImage(
+    buildQrImageUrls(buildTicketQrValue(ticket), { size: 500, dark: "000000", light: "00000000" })
   )
-    .then((image) => makeWhitePixelsTransparent(image))
+    .then((image) => (image ? makeWhitePixelsTransparent(image) : null))
     .catch(() => null);
 
   if (hasTemplate) {
@@ -1121,21 +1141,39 @@ function syncHoldRefresh() {
 async function handleSeatInteraction(seatId) {
   if (!seatId) return;
 
-  if (shouldSyncBeforeAction()) {
-    await syncStateFromServer();
-  }
-
   if (selectedSeatIds.includes(seatId)) {
     selectedSeatIds = selectedSeatIds.filter((id) => id !== seatId);
+    renderHall();
+    renderSelection();
     state = await persistSharedState(releaseSeatHold(getState(), seatId, sessionId));
+    syncSelection();
+    return;
   } else {
+    if (!isSeatAvailable(state, seatId, sessionId)) {
+      syncSelection();
+      return;
+    }
+
+    selectedSeatIds.push(seatId);
+    renderHall();
+    renderSelection();
+
+    if (shouldSyncBeforeAction()) {
+      await syncStateFromServer();
+      if (!isSeatAvailable(state, seatId, sessionId)) {
+        selectedSeatIds = selectedSeatIds.filter((id) => id !== seatId);
+        syncSelection();
+        return;
+      }
+    }
+
     const holdResult = holdSeat(getState(), seatId, sessionId);
     if (!holdResult.success) {
+      selectedSeatIds = selectedSeatIds.filter((id) => id !== seatId);
       syncSelection();
       return;
     }
     state = await persistSharedState(holdResult.state);
-    selectedSeatIds.push(seatId);
   }
 
   syncSelection();
@@ -1231,6 +1269,7 @@ function renderDeviceTickets(focusLatest = false) {
   ticketsOutput.innerHTML = tickets
     .map((ticket) => {
       const qrValue = buildTicketQrValue(ticket);
+      const qrUrls = buildQrImageUrls(qrValue, { size: 220, dark: "ffffff", light: "00000000" });
       const seatText = ticket.seatDisplayLabel || ticket.seatLabel;
       const downloadState = ticketDownloadStates.get(ticket.code);
       const isPreparingPdf = downloadState?.status === "preparing";
@@ -1242,7 +1281,7 @@ function renderDeviceTickets(focusLatest = false) {
           <p class="ticket-card__name">${ticket.fullName}</p>
           ${ticket.group ? `<p class="ticket-card__meta">Группа: ${ticket.group}</p>` : ""}
           <p class="ticket-card__meta">Статус: Забронирован</p>
-          <img class="ticket-card__qr" src="https://quickchart.io/qr?size=220&margin=0&light=00000000&text=${encodeURIComponent(qrValue)}" alt="QR код билета ${ticket.code}" />
+          <img class="ticket-card__qr" src="${qrUrls[0]}" data-qr-fallback="${qrUrls[1]}" alt="QR код билета ${ticket.code}" />
           <p class="ticket-card__code">Код билета: ${ticket.code}</p>
           <button type="button" class="button button--ghost ticket-card__download" data-ticket-code="${ticket.code}" ${isPreparingPdf ? "disabled" : ""}>${isPreparingPdf ? "Готовим PDF..." : "Скачать билет"}</button>
           <div class="ticket-download-result" data-ticket-download-result="${ticket.code}">${getPdfDownloadMarkup(downloadState)}</div>
@@ -1280,6 +1319,18 @@ ticketsOutput.addEventListener("click", async (event) => {
     await runTicketDownload(ticket.code, button, () => prepareTicketDownload(ticket));
   }
 });
+
+ticketsOutput.addEventListener(
+  "error",
+  (event) => {
+    const image = event.target.closest?.(".ticket-card__qr");
+    if (!image?.dataset.qrFallback) return;
+
+    image.src = image.dataset.qrFallback;
+    delete image.dataset.qrFallback;
+  },
+  true
+);
 
 window.addEventListener("storage", () => {
   state = getState();

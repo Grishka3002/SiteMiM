@@ -10,6 +10,7 @@ import {
   saveState,
   updateTicketStatus
 } from "./data.js";
+import { buildTicketsPdfBlob } from "./ticket-pdf.js";
 
 const statsGrid = document.getElementById("stats-grid");
 const tableBody = document.getElementById("admin-table-body");
@@ -26,6 +27,10 @@ const designerModeButtons = [...document.querySelectorAll("[data-designer-mode]"
 const designerLabelText = document.getElementById("designer-label-text");
 const designerLabelKind = document.getElementById("designer-label-kind");
 const designerLabelsList = document.getElementById("designer-labels");
+const adminTicketGenerator = document.getElementById("admin-ticket-generator");
+const adminTicketCode = document.getElementById("admin-ticket-code");
+const adminTicketGeneratorStatus = document.getElementById("admin-ticket-generator-status");
+const adminTicketDownloadResult = document.getElementById("admin-ticket-download-result");
 
 let state = getState();
 let selectedCells = new Set((state.customLayout?.cells || []).map((cell) => `${cell.x}:${cell.y}`));
@@ -177,6 +182,31 @@ function renderTable() {
     : '<tr><td colspan="7" class="muted">Ничего не найдено.</td></tr>';
 }
 
+function formatAdminSeatDisplay(seat) {
+  const sectionNames = {
+    parter: "Партер",
+    balcony: "Балкон",
+    "lodge-left": "Ложа 1",
+    "lodge-right": "Ложа 2"
+  };
+  const sectionName = sectionNames[seat.sectionId] || "Зал";
+  return `${sectionName}, ряд ${seat.row}, место ${seat.number}`;
+}
+
+function renderAdminTicketGenerator() {
+  if (!adminTicketCode) return;
+
+  const tickets = flattenTickets(state);
+
+  adminTicketCode.innerHTML = tickets.length
+    ? tickets
+        .map((ticket) => `<option value="${ticket.code}">${ticket.code} - ${ticket.fullName} - ${ticket.seatDisplayLabel || ticket.seatLabel}</option>`)
+        .join("")
+    : '<option value="">Броней пока нет</option>';
+
+  adminTicketCode.disabled = !tickets.length;
+}
+
 function renderDesignerSummary() {
   designerSummary.innerHTML = `
     <span class="status-pill">Отмечено мест: ${selectedCells.size}</span>
@@ -250,6 +280,7 @@ function saveDesignerLayout() {
   }));
   renderStats();
   renderTable();
+  renderAdminTicketGenerator();
   renderDesigner();
 }
 
@@ -270,6 +301,7 @@ async function syncLayoutFromServer() {
     selectedLabelId = null;
     renderStats();
     renderTable();
+    renderAdminTicketGenerator();
     renderDesigner();
   } catch (error) {
     console.warn("Не удалось загрузить схему с сервера.", error);
@@ -292,6 +324,7 @@ async function syncSharedState(options = {}) {
     selectedLabelId = null;
     renderStats();
     renderTable();
+    renderAdminTicketGenerator();
     renderDesigner();
   }
 
@@ -308,6 +341,7 @@ async function persistSharedState(nextState) {
     console.warn("Не удалось синхронизировать общее состояние зала.", error);
     renderStats();
     renderTable();
+    renderAdminTicketGenerator();
     renderDesigner();
   }
 }
@@ -361,6 +395,31 @@ tabButtons.forEach((button) => {
 
 designerModeButtons.forEach((button) => {
   button.addEventListener("click", () => setDesignerMode(button.dataset.designerMode));
+});
+
+adminTicketGenerator?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const ticket = flattenTickets(state).find((item) => item.code === adminTicketCode.value);
+  if (!ticket) {
+    adminTicketGeneratorStatus.textContent = "Выберите билет из списка броней.";
+    return;
+  }
+
+  adminTicketGeneratorStatus.textContent = "Готовим PDF...";
+  adminTicketDownloadResult.innerHTML = "";
+
+  try {
+    const blob = await buildTicketsPdfBlob([ticket]);
+    const url = URL.createObjectURL(blob);
+    adminTicketDownloadResult.innerHTML = `
+      <a class="button button--primary button--full" href="${url}" download="${ticket.code}.pdf" target="_blank" rel="noopener">Открыть / скачать PDF</a>
+    `;
+    adminTicketGeneratorStatus.textContent = `PDF готов: ${ticket.code}`;
+  } catch (error) {
+    console.error(error);
+    adminTicketGeneratorStatus.textContent = "Не удалось сгенерировать PDF. Попробуйте ещё раз.";
+  }
 });
 
 tableBody.addEventListener("click", async (event) => {
@@ -425,6 +484,7 @@ resetButton.addEventListener("click", async () => {
   await saveRemoteState(state);
   renderStats();
   renderTable();
+  renderAdminTicketGenerator();
   renderDesigner();
 });
 
@@ -524,11 +584,13 @@ window.addEventListener("storage", () => {
   selectedLabelId = null;
   renderStats();
   renderTable();
+  renderAdminTicketGenerator();
   renderDesigner();
 });
 
 renderStats();
 renderTable();
+renderAdminTicketGenerator();
 renderDesigner();
 setActiveTab("bookings");
 setDesignerMode("seats");
