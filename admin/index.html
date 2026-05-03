@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script defer src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <link rel="stylesheet" href="../styles.css" />
 </head>
 <body data-page="admin">
@@ -50,6 +51,27 @@
               <button class="button button--danger" id="reset-demo">Очистить все данные</button>
             </div>
           </div>
+          <form class="admin-ticket-generator" id="admin-ticket-generator">
+            <label class="field">
+              <span>Билет из списка броней</span>
+              <select class="input" id="admin-ticket-code" required></select>
+            </label>
+            <button class="button button--primary" type="submit">Сгенерировать PDF</button>
+            <p class="muted" id="admin-ticket-generator-status"></p>
+            <div class="ticket-download-result" id="admin-ticket-download-result"></div>
+          </form>
+          <form class="admin-ticket-generator hidden" id="admin-ticket-generator-old" style="display:none;">
+            <label class="field">
+              <span>ФИО для билета</span>
+              <input class="input" id="admin-ticket-name" type="text" placeholder="Иванов Иван Иванович" required />
+            </label>
+            <label class="field">
+              <span>Место</span>
+              <select class="input" id="admin-ticket-seat" required></select>
+            </label>
+            <button class="button button--primary" type="submit">Сгенерировать билет</button>
+            <p class="muted" id="admin-ticket-generator-status"></p>
+          </form>
           <div class="table-wrap">
             <table class="data-table">
               <thead>
