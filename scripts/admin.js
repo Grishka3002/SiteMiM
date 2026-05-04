@@ -114,50 +114,6 @@ function formatDate(dateIso) {
   }).format(new Date(dateIso));
 }
 
-function hasBrokenEncoding(value) {
-  return String(value || "").includes("\uFFFD");
-}
-
-function getLiveSeatSectionName(seat) {
-  const sectionNames = {
-    parter: "\u041f\u0430\u0440\u0442\u0435\u0440",
-    balcony: "\u0411\u0430\u043b\u043a\u043e\u043d",
-    "lodge-left": "\u041b\u043e\u0436\u0430 1",
-    "lodge-right": "\u041b\u043e\u0436\u0430 2",
-    custom: "\u041c\u0435\u0441\u0442\u043e"
-  };
-
-  return sectionNames[seat.sectionId] || String(seat.sectionTitle || "").trim() || "\u041c\u0435\u0441\u0442\u043e";
-}
-
-function formatLiveSeatDisplay(seat) {
-  if (!seat) return "";
-
-  const sectionName = getLiveSeatSectionName(seat);
-  if (sectionName === "\u041c\u0435\u0441\u0442\u043e") {
-    return `\u0420\u044f\u0434 ${seat.row}, \u043c\u0435\u0441\u0442\u043e ${seat.number}`;
-  }
-
-  return `${sectionName}, \u0440\u044f\u0434 ${seat.row}, \u043c\u0435\u0441\u0442\u043e ${seat.number}`;
-}
-
-function getTicketSeatDisplay(ticket) {
-  const currentSeat = state.seats.find((seat) => seat.id === ticket.seatId);
-  if (currentSeat) {
-    return formatLiveSeatDisplay(currentSeat);
-  }
-
-  const storedLabel = ticket.seatDisplayLabel || ticket.seatLabel || "";
-  return hasBrokenEncoding(storedLabel) ? String(storedLabel).replace(/\uFFFD+/g, "").replace(/\s+/g, " ").trim() : storedLabel;
-}
-
-function normalizeAdminTicket(ticket) {
-  return {
-    ...ticket,
-    seatDisplayLabel: getTicketSeatDisplay(ticket)
-  };
-}
-
 function createLabelId() {
   return `label-${crypto.randomUUID()}`;
 }
@@ -203,7 +159,7 @@ function renderStats() {
 
 function renderTable() {
   const searchTerm = searchInput.value.trim().toLowerCase();
-  const tickets = flattenTickets(state).map(normalizeAdminTicket).filter((ticket) => {
+  const tickets = flattenTickets(state).filter((ticket) => {
     if (!searchTerm) return true;
 
     return [ticket.fullName, ticket.group, ticket.code, ticket.seatDisplayLabel || ticket.seatLabel, ticket.contactPhone, ticket.contactNote]
@@ -259,7 +215,7 @@ function formatAdminSeatDisplay(seat) {
 function renderAdminTicketGenerator() {
   if (!adminTicketCode) return;
 
-  const tickets = flattenTickets(state).map(normalizeAdminTicket);
+  const tickets = flattenTickets(state);
 
   adminTicketCode.innerHTML = tickets.length
     ? tickets
@@ -468,7 +424,7 @@ designerModeButtons.forEach((button) => {
 adminTicketGenerator?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const ticket = flattenTickets(state).map(normalizeAdminTicket).find((item) => item.code === adminTicketCode.value);
+  const ticket = flattenTickets(state).find((item) => item.code === adminTicketCode.value);
   if (!ticket) {
     adminTicketGeneratorStatus.textContent = "Выберите билет из списка броней.";
     return;
@@ -539,7 +495,7 @@ tableBody.addEventListener("click", async (event) => {
 });
 
 exportButton.addEventListener("click", () => {
-  const tickets = flattenTickets(state).map(normalizeAdminTicket);
+  const tickets = flattenTickets(state);
   const rows = [
     ["seat", "full_name", "group", "ticket_code", "contact_phone", "contact_note", "status", "created_at", "checked_in_at"],
     ...tickets.map((ticket) => [
