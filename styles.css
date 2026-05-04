@@ -161,6 +161,12 @@ textarea {
   width: 100%;
 }
 
+.button--small {
+  min-height: auto;
+  padding: 9px 12px;
+  font-size: 0.86rem;
+}
+
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
@@ -1418,6 +1424,16 @@ body[data-page="volunteer"] .scan-result {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: rgba(0, 0, 0, 0.54);
+}
+
+.admin-inline-edit {
+  display: grid;
+  gap: 8px;
+  min-width: 240px;
+}
+
+.admin-name-input {
+  min-width: 240px;
 }
 
 .status-pill--booked { background: rgba(210, 154, 35, 0.12); color: #8a5d00; }
