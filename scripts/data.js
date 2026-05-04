@@ -611,6 +611,37 @@ export function updateTicketStatus(state, ticketCode, status) {
   return { state: saveState(nextState), ticket: updatedTicket };
 }
 
+export function updateTicketFullName(state, ticketCode, fullName) {
+  const normalizedFullName = String(fullName || "").trim().replace(/\s+/g, " ");
+  if (!normalizedFullName) {
+    return { state, ticket: null };
+  }
+
+  let updatedTicket = null;
+  const nextState = clone(state);
+
+  nextState.bookings = nextState.bookings.map((booking) => ({
+    ...booking,
+    tickets: booking.tickets.map((ticket) => {
+      if (ticket.code !== ticketCode) {
+        return ticket;
+      }
+
+      updatedTicket = {
+        ...ticket,
+        fullName: normalizedFullName
+      };
+      return updatedTicket;
+    })
+  }));
+
+  if (!updatedTicket) {
+    return { state, ticket: null };
+  }
+
+  return { state: saveState(nextState), ticket: updatedTicket };
+}
+
 export function deleteBooking(state, bookingId) {
   const nextState = clone(state);
   const deletedBooking = nextState.bookings.find((booking) => booking.id === bookingId) || null;

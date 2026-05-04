@@ -8,6 +8,7 @@ import {
   hydrateCustomLayout,
   resetState,
   saveState,
+  updateTicketFullName,
   updateTicketStatus
 } from "./data.js";
 import { buildTicketsPdfBlob } from "./ticket-pdf.js";
@@ -40,6 +41,19 @@ let designerMode = "seats";
 let paintMode = null;
 let isPointerDown = false;
 let remoteSyncTimer = null;
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll("\n", " ");
+}
 
 async function fetchRemoteLayout() {
   const response = await fetch("/api/layout", { cache: "no-store" });
@@ -164,11 +178,16 @@ function renderTable() {
 
           return `
             <tr>
-              <td>${ticket.seatDisplayLabel || ticket.seatLabel}</td>
-              <td>${ticket.fullName}</td>
-              <td>${ticket.group}</td>
-              <td><code>${ticket.code}</code></td>
-              <td>${ticket.contactPhone}<br /><span class="muted">${ticket.contactNote}</span></td>
+              <td>${escapeHtml(ticket.seatDisplayLabel || ticket.seatLabel || "")}</td>
+              <td>
+                <div class="admin-inline-edit">
+                  <input class="input admin-name-input" type="text" value="${escapeAttribute(ticket.fullName || "")}" data-ticket-name="${escapeAttribute(ticket.code)}" aria-label="ФИО билета ${escapeAttribute(ticket.code)}" />
+                  <button class="button button--ghost button--small" type="button" data-ticket-name-save="${escapeAttribute(ticket.code)}">Сохранить ФИО</button>
+                </div>
+              </td>
+              <td>${escapeHtml(ticket.group)}</td>
+              <td><code>${escapeHtml(ticket.code)}</code></td>
+              <td>${escapeHtml(ticket.contactPhone)}<br /><span class="muted">${escapeHtml(ticket.contactNote)}</span></td>
               <td><span class="${statusClass}">${statusText}</span></td>
               <td>
                 <button class="button button--ghost" data-ticket-code="${ticket.code}" data-next-status="${nextStatus}">${actionLabel}</button>
@@ -200,7 +219,7 @@ function renderAdminTicketGenerator() {
 
   adminTicketCode.innerHTML = tickets.length
     ? tickets
-        .map((ticket) => `<option value="${ticket.code}">${ticket.code} - ${ticket.fullName} - ${ticket.seatDisplayLabel || ticket.seatLabel}</option>`)
+        .map((ticket) => `<option value="${escapeAttribute(ticket.code)}">${escapeHtml(ticket.code)} - ${escapeHtml(ticket.fullName)} - ${escapeHtml(ticket.seatDisplayLabel || ticket.seatLabel)}</option>`)
         .join("")
     : '<option value="">Броней пока нет</option>';
 
@@ -321,6 +340,11 @@ async function syncSharedState(options = {}) {
   const changed = previousStamp !== nextStamp;
 
   if (changed || forceRender) {
+    const isEditingTicketName = document.activeElement?.matches?.("[data-ticket-name]");
+    if (isEditingTicketName && !forceRender) {
+      return changed;
+    }
+
     selectedLabelId = null;
     renderStats();
     renderTable();
@@ -423,6 +447,30 @@ adminTicketGenerator?.addEventListener("submit", async (event) => {
 });
 
 tableBody.addEventListener("click", async (event) => {
+  const nameSaveButton = event.target.closest("[data-ticket-name-save]");
+  if (nameSaveButton) {
+    const row = nameSaveButton.closest("tr");
+    const input = row?.querySelector("[data-ticket-name]");
+    const fullName = input?.value.trim() || "";
+
+    if (!fullName) {
+      alert("Введите ФИО для билета.");
+      input?.focus();
+      return;
+    }
+
+    const result = updateTicketFullName(state, nameSaveButton.dataset.ticketNameSave, fullName);
+    if (!result.ticket) {
+      alert("Билет не найден. Обновите страницу и попробуйте ещё раз.");
+      return;
+    }
+
+    nameSaveButton.disabled = true;
+    nameSaveButton.textContent = "Сохранено";
+    await persistSharedState(result.state);
+    return;
+  }
+
   const deleteButton = event.target.closest("[data-booking-delete]");
   if (deleteButton) {
     const approved = window.confirm(`Удалить бронь ${deleteButton.dataset.bookingLabel}? Места снова станут свободными.`);
