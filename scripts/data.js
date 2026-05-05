@@ -654,6 +654,42 @@ export function deleteBooking(state, bookingId) {
   return { state: saveState(nextState), booking: deletedBooking };
 }
 
+export function getSeatDisplayLabel(seat) {
+  if (!seat) return "";
+
+  const sectionNames = {
+    parter: "Партер",
+    balcony: "Балкон",
+    "lodge-left": "Ложа 1",
+    "lodge-right": "Ложа 2"
+  };
+  const sectionName = sectionNames[seat.sectionId] || String(seat.sectionTitle || "").trim();
+  const placeText = `ряд ${seat.row}, место ${seat.number}`;
+
+  return sectionName ? `${sectionName}, ${placeText}` : `Ряд ${seat.row}, место ${seat.number}`;
+}
+
+export function getTicketSeatDisplayLabel(state, ticket) {
+  const liveSeat = (state.seats || []).find((seat) => seat.id === ticket.seatId);
+  if (liveSeat) {
+    return getSeatDisplayLabel(liveSeat);
+  }
+
+  const storedLabel = String(ticket.seatDisplayLabel || ticket.seatLabel || "").trim();
+  if (/[\uFFFD?]{2,}/.test(storedLabel)) {
+    return String(ticket.seatLabel || "").trim() || storedLabel.replace(/[\uFFFD?]+/g, "").replace(/\s+/g, " ").trim();
+  }
+
+  return storedLabel;
+}
+
+export function normalizeTicketDisplay(state, ticket) {
+  return {
+    ...ticket,
+    seatDisplayLabel: getTicketSeatDisplayLabel(state, ticket)
+  };
+}
+
 export function findTicketByCode(state, code) {
   for (const booking of state.bookings) {
     for (const ticket of booking.tickets) {

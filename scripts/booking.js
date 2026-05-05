@@ -10,6 +10,7 @@
   hydrateCustomLayout,
   holdSeat,
   isSeatAvailable,
+  normalizeTicketDisplay,
   refreshSeatHolds,
   releaseSeatHold,
   saveState
@@ -363,6 +364,13 @@ function getNormalizedCustomLayout() {
 }
 
 function getDisplayLabelText(label, absoluteRow) {
+  if (label.kind === "section") {
+    if (label.x <= 23 && label.y >= 33 && label.y <= 43) return "Ложа 1";
+    if (label.x >= 47 && label.y >= 33 && label.y <= 43) return "Ложа 2";
+    if (label.y <= 32) return "Балкон";
+    return "Партер";
+  }
+
   if (label.kind !== "row") {
     return label.text;
   }
@@ -527,17 +535,17 @@ function getPdfDownloadMarkup(downloadState) {
   }
 
   if (downloadState.status === "preparing") {
-    return '<p class="ticket-download-status">Готовим PDF...</p>';
+    return '<p class="ticket-download-status">Готовим файл билета...</p>';
   }
 
   if (downloadState.status === "error") {
-    return '<p class="ticket-download-status ticket-download-status--error">Не удалось подготовить PDF. Нажмите скачать ещё раз.</p>';
+    return '<p class="ticket-download-status ticket-download-status--error">Не удалось подготовить файл. Нажмите скачать ещё раз.</p>';
   }
 
   if (downloadState.status === "ready") {
     return `
-    <a class="button button--primary button--full" href="${downloadState.url}" download="${downloadState.filename}" target="_blank" rel="noopener">Открыть / скачать PDF</a>
-    <p class="muted">Если файл не скачался автоматически, нажмите эту кнопку. На iPhone PDF обычно откроется в новой вкладке, откуда его можно сохранить или отправить.</p>
+    <a class="button button--primary button--full" href="${downloadState.url}" download="${downloadState.filename}" target="_blank" rel="noopener">Открыть / скачать билет</a>
+    <p class="muted">Если файл не скачался автоматически, нажмите эту кнопку. На телефоне билет откроется в новой вкладке, откуда его можно сохранить или отправить.</p>
   `;
   }
 
@@ -579,6 +587,15 @@ function showPdfDownloadLink(key, blob, filename) {
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function buildQrImageUrls(value, options = {}) {
   const { size = 500, dark = "000000", light = "00000000" } = options;
   const encodedValue = encodeURIComponent(value);
@@ -586,6 +603,51 @@ function buildQrImageUrls(value, options = {}) {
     `https://quickchart.io/qr?size=${size}&margin=0&dark=${dark}&light=${light}&text=${encodedValue}`,
     `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=0&color=${dark}&bgcolor=${light}&data=${encodedValue}`
   ];
+}
+
+function buildTicketHtmlDocument(tickets) {
+  const normalizedTickets = tickets.map((ticket) => normalizeTicketDisplay(state, ticket));
+  const cards = normalizedTickets
+    .map((ticket) => {
+      const seatText = ticket.seatDisplayLabel || ticket.seatLabel;
+      const qrUrls = buildQrImageUrls(buildTicketQrValue(ticket), { size: 360, dark: "000000", light: "ffffff" });
+      return `
+        <article class="ticket">
+          <div>
+            <p class="kicker">Мисс и Мистер ВВГУ</p>
+            <h1>${escapeHtml(seatText)}</h1>
+            <h2>${escapeHtml(ticket.fullName)}</h2>
+            <p>Статус: Забронирован</p>
+            <p>Код билета: <strong>${escapeHtml(ticket.code)}</strong></p>
+          </div>
+          <img src="${qrUrls[0]}" onerror="this.onerror=null;this.src='${qrUrls[1]}'" alt="QR код билета ${escapeHtml(ticket.code)}" />
+        </article>
+      `;
+    })
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Билеты</title>
+  <style>
+    body { margin: 0; padding: 24px; font-family: Arial, sans-serif; color: #111; background: #f4f0e8; }
+    .ticket { display: grid; grid-template-columns: 1fr 160px; gap: 24px; max-width: 760px; margin: 0 auto 18px; padding: 24px; border-radius: 24px; background: #fff; border: 1px solid #ddd; page-break-inside: avoid; }
+    .kicker { margin: 0 0 10px; text-transform: uppercase; letter-spacing: .12em; font-size: 12px; font-weight: 800; color: #354cff; }
+    h1 { margin: 0 0 12px; font-size: 34px; line-height: 1.05; }
+    h2 { margin: 0 0 16px; font-size: 22px; }
+    p { margin: 8px 0; font-size: 17px; }
+    img { width: 160px; height: 160px; align-self: center; }
+    @media (max-width: 560px) { body { padding: 12px; } .ticket { grid-template-columns: 1fr; } img { width: 180px; height: 180px; } h1 { font-size: 28px; } }
+    @media print { body { background: #fff; } .ticket { box-shadow: none; } }
+  </style>
+</head>
+<body>
+  ${cards}
+</body>
+</html>`;
 }
 
 function getAllTicketsDownloadResult() {
@@ -864,18 +926,14 @@ async function buildTicketsPdfBlob(tickets) {
 }
 
 async function prepareTicketsDownload(tickets, filename) {
-  const PDFLib = window.PDFLib;
-  if (!PDFLib) {
-    alert("PDF-библиотека ещё не загрузилась. Обновите страницу и попробуйте снова.");
-    throw new Error("PDF library is unavailable");
-  }
-
   try {
-    const blob = await buildTicketsPdfBlob(tickets);
-    return { blob, filename };
+    const html = buildTicketHtmlDocument(tickets);
+    const safeFilename = filename.replace(/\.pdf$/i, ".html");
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    return { blob, filename: safeFilename };
   } catch (error) {
     console.error(error);
-    alert("Не удалось скачать PDF-билет. Попробуйте ещё раз.");
+    alert("Не удалось скачать билет. Попробуйте ещё раз.");
     throw error;
   }
 }
@@ -946,6 +1004,10 @@ function renderPresetSection(section, seatIndex, seatStatusMap) {
 
 function renderCustomHall(seatStatusMap) {
   const { labels, cols, rows, minX, minY } = getNormalizedCustomLayout();
+  const rowValues = [...new Set(getRenderableSeats().map((seat) => seat.gridY))]
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => b - a);
+  const absoluteRowByY = new Map(rowValues.map((y, index) => [y, index + 1]));
   const seatsMarkup = getRenderableSeats()
       .map(
         (seat) => `
@@ -958,14 +1020,17 @@ function renderCustomHall(seatStatusMap) {
 
   const labelsMarkup = labels
     .map(
-        (label) => `
+        (label) => {
+          const absoluteRow = absoluteRowByY.get(label.y);
+          return `
             <div
               class="custom-hall-label custom-hall-label--${label.kind || "custom"}"
               style="--x:${label.x - minX}; --y:${label.y - minY};"
             >
-              ${label.text}
+              ${getDisplayLabelText(label, absoluteRow)}
             </div>
-        `
+        `;
+        }
       )
     .join("");
 
@@ -1255,7 +1320,7 @@ bookingForm.addEventListener("submit", async (event) => {
 });
 
 function renderDeviceTickets(focusLatest = false) {
-  const tickets = getTicketsByDevice(state, deviceId);
+  const tickets = getTicketsByDevice(state, deviceId).map((ticket) => normalizeTicketDisplay(state, ticket));
 
   if (!tickets.length) {
     ticketsPanel.classList.add("hidden");
@@ -1276,14 +1341,14 @@ function renderDeviceTickets(focusLatest = false) {
 
       return `
         <article class="ticket-card">
-          <p class="panel__kicker">${state.event.title}</p>
-          <p class="ticket-card__seat">${seatText}</p>
-          <p class="ticket-card__name">${ticket.fullName}</p>
-          ${ticket.group ? `<p class="ticket-card__meta">Группа: ${ticket.group}</p>` : ""}
+          <p class="panel__kicker">${escapeHtml(state.event.title)}</p>
+          <p class="ticket-card__seat">${escapeHtml(seatText)}</p>
+          <p class="ticket-card__name">${escapeHtml(ticket.fullName)}</p>
+          ${ticket.group ? `<p class="ticket-card__meta">Группа: ${escapeHtml(ticket.group)}</p>` : ""}
           <p class="ticket-card__meta">Статус: Забронирован</p>
           <img class="ticket-card__qr" src="${qrUrls[0]}" data-qr-fallback="${qrUrls[1]}" alt="QR код билета ${ticket.code}" />
-          <p class="ticket-card__code">Код билета: ${ticket.code}</p>
-          <button type="button" class="button button--ghost ticket-card__download" data-ticket-code="${ticket.code}" ${isPreparingPdf ? "disabled" : ""}>${isPreparingPdf ? "Готовим PDF..." : "Скачать билет"}</button>
+          <p class="ticket-card__code">Код билета: ${escapeHtml(ticket.code)}</p>
+          <button type="button" class="button button--ghost ticket-card__download" data-ticket-code="${ticket.code}" ${isPreparingPdf ? "disabled" : ""}>${isPreparingPdf ? "Готовим файл..." : "Скачать билет"}</button>
           <div class="ticket-download-result" data-ticket-download-result="${ticket.code}">${getPdfDownloadMarkup(downloadState)}</div>
         </article>
       `;
@@ -1298,7 +1363,7 @@ function renderDeviceTickets(focusLatest = false) {
 }
 
 downloadAllTicketsButton?.addEventListener("click", async () => {
-  const tickets = getTicketsByDevice(state, deviceId);
+  const tickets = getTicketsByDevice(state, deviceId).map((ticket) => normalizeTicketDisplay(state, ticket));
   if (!tickets.length) {
     return;
   }
@@ -1313,7 +1378,7 @@ ticketsOutput.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-ticket-code]");
   if (!button) return;
 
-  const tickets = getTicketsByDevice(state, deviceId);
+  const tickets = getTicketsByDevice(state, deviceId).map((item) => normalizeTicketDisplay(state, item));
   const ticket = tickets.find((item) => item.code === button.dataset.ticketCode);
   if (ticket) {
     await runTicketDownload(ticket.code, button, () => prepareTicketDownload(ticket));

@@ -6,6 +6,7 @@ import {
   getState,
   getStats,
   hydrateCustomLayout,
+  normalizeTicketDisplay,
   resetState,
   saveState,
   updateTicketFullName,
@@ -159,7 +160,7 @@ function renderStats() {
 
 function renderTable() {
   const searchTerm = searchInput.value.trim().toLowerCase();
-  const tickets = flattenTickets(state).filter((ticket) => {
+  const tickets = flattenTickets(state).map((ticket) => normalizeTicketDisplay(state, ticket)).filter((ticket) => {
     if (!searchTerm) return true;
 
     return [ticket.fullName, ticket.group, ticket.code, ticket.seatDisplayLabel || ticket.seatLabel, ticket.contactPhone, ticket.contactNote]
@@ -215,7 +216,7 @@ function formatAdminSeatDisplay(seat) {
 function renderAdminTicketGenerator() {
   if (!adminTicketCode) return;
 
-  const tickets = flattenTickets(state);
+  const tickets = flattenTickets(state).map((ticket) => normalizeTicketDisplay(state, ticket));
 
   adminTicketCode.innerHTML = tickets.length
     ? tickets
@@ -424,7 +425,7 @@ designerModeButtons.forEach((button) => {
 adminTicketGenerator?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const ticket = flattenTickets(state).find((item) => item.code === adminTicketCode.value);
+  const ticket = flattenTickets(state).map((item) => normalizeTicketDisplay(state, item)).find((item) => item.code === adminTicketCode.value);
   if (!ticket) {
     adminTicketGeneratorStatus.textContent = "Выберите билет из списка броней.";
     return;
@@ -495,7 +496,7 @@ tableBody.addEventListener("click", async (event) => {
 });
 
 exportButton.addEventListener("click", () => {
-  const tickets = flattenTickets(state);
+  const tickets = flattenTickets(state).map((ticket) => normalizeTicketDisplay(state, ticket));
   const rows = [
     ["seat", "full_name", "group", "ticket_code", "contact_phone", "contact_note", "status", "created_at", "checked_in_at"],
     ...tickets.map((ticket) => [
