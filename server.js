@@ -132,6 +132,35 @@ function getTicketVoteKey(ticket) {
   return String(ticket.code || ticket.id || "").trim();
 }
 
+function getSeatDisplayLabel(seat) {
+  if (!seat) return "";
+
+  const sectionNames = {
+    parter: "Партер",
+    balcony: "Балкон",
+    "lodge-left": "Ложа 1",
+    "lodge-right": "Ложа 2"
+  };
+  const sectionName = sectionNames[seat.sectionId] || String(seat.sectionTitle || "").trim();
+  const placeText = `ряд ${seat.row}, место ${seat.number}`;
+  return sectionName ? `${sectionName}, ${placeText}` : `Ряд ${seat.row}, место ${seat.number}`;
+}
+
+function getTicketSeatDisplayLabel(ticket) {
+  const state = readSharedState();
+  const liveSeat = (state.seats || []).find((seat) => seat.id === ticket.seatId);
+  if (liveSeat) {
+    return getSeatDisplayLabel(liveSeat);
+  }
+
+  const storedLabel = String(ticket.seatDisplayLabel || ticket.seatLabel || "").trim();
+  if (/[\uFFFD?]{2,}/.test(storedLabel)) {
+    return String(ticket.seatLabel || "").trim() || storedLabel.replace(/[\uFFFD?]+/g, "").replace(/\s+/g, " ").trim();
+  }
+
+  return storedLabel;
+}
+
 function findTicketForVote(query) {
   const normalizedQuery = normalizeVoteLookup(query);
   if (!normalizedQuery) {
@@ -143,6 +172,7 @@ function findTicketForVote(query) {
       ticket.code,
       ticket.seatLabel,
       ticket.seatDisplayLabel,
+      getTicketSeatDisplayLabel(ticket),
       `${ticket.seatLabel} ${ticket.seatDisplayLabel}`
     ];
     return values.some((value) => normalizeVoteLookup(value) === normalizedQuery);
@@ -153,7 +183,7 @@ function getPublicTicket(ticket) {
   return {
     code: ticket.code,
     seatLabel: ticket.seatLabel,
-    seatDisplayLabel: ticket.seatDisplayLabel || ticket.seatLabel,
+    seatDisplayLabel: getTicketSeatDisplayLabel(ticket),
     checkedIn: isTicketCheckedIn(ticket)
   };
 }
@@ -392,7 +422,7 @@ const server = http.createServer((request, response) => {
           ticketCode: ticketKey,
           ticketId: ticket.id,
           seatLabel: ticket.seatLabel,
-          seatDisplayLabel: ticket.seatDisplayLabel || ticket.seatLabel,
+          seatDisplayLabel: getTicketSeatDisplayLabel(ticket),
           boyId,
           girlId,
           updatedAt: new Date().toISOString()
