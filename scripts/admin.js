@@ -19,6 +19,11 @@ const tableBody = document.getElementById("admin-table-body");
 const searchInput = document.getElementById("admin-search");
 const exportButton = document.getElementById("export-data");
 const resetButton = document.getElementById("reset-demo");
+const downloadSelectedTicketsButton = document.getElementById("download-selected-tickets");
+const selectVisibleTicketsButton = document.getElementById("select-visible-tickets");
+const clearSelectedTicketsButton = document.getElementById("clear-selected-tickets");
+const selectedTicketsStatus = document.getElementById("selected-tickets-status");
+const selectVisibleCheckbox = document.getElementById("select-visible-checkbox");
 const tabButtons = [...document.querySelectorAll("[data-admin-tab]")];
 const tabPanels = [...document.querySelectorAll("[data-admin-panel]")];
 const designerRoot = document.getElementById("seat-designer");
@@ -42,6 +47,8 @@ let designerMode = "seats";
 let paintMode = null;
 let isPointerDown = false;
 let remoteSyncTimer = null;
+let selectedTicketCodes = new Set();
+let visibleTicketCodes = [];
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -158,9 +165,13 @@ function renderStats() {
     .join("");
 }
 
-function renderTable() {
+function getNormalizedTickets() {
+  return flattenTickets(state).map((ticket) => normalizeTicketDisplay(state, ticket));
+}
+
+function getFilteredTickets() {
   const searchTerm = searchInput.value.trim().toLowerCase();
-  const tickets = flattenTickets(state).map((ticket) => normalizeTicketDisplay(state, ticket)).filter((ticket) => {
+  return getNormalizedTickets().filter((ticket) => {
     if (!searchTerm) return true;
 
     return [ticket.fullName, ticket.group, ticket.code, ticket.seatDisplayLabel || ticket.seatLabel, ticket.contactPhone, ticket.contactNote]
@@ -168,6 +179,31 @@ function renderTable() {
       .toLowerCase()
       .includes(searchTerm);
   });
+}
+
+function updateSelectedTicketsUi() {
+  const selectedCount = selectedTicketCodes.size;
+  const visibleSelectedCount = visibleTicketCodes.filter((code) => selectedTicketCodes.has(code)).length;
+
+  if (selectedTicketsStatus) {
+    selectedTicketsStatus.textContent = `Выбрано билетов: ${selectedCount}`;
+  }
+
+  if (downloadSelectedTicketsButton) {
+    downloadSelectedTicketsButton.disabled = selectedCount === 0;
+  }
+
+  if (selectVisibleCheckbox) {
+    selectVisibleCheckbox.checked = visibleTicketCodes.length > 0 && visibleSelectedCount === visibleTicketCodes.length;
+    selectVisibleCheckbox.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < visibleTicketCodes.length;
+  }
+}
+
+function renderTable() {
+  const tickets = getFilteredTickets();
+  visibleTicketCodes = tickets.map((ticket) => ticket.code);
+  const existingCodes = new Set(getNormalizedTickets().map((ticket) => ticket.code));
+  selectedTicketCodes = new Set([...selectedTicketCodes].filter((code) => existingCodes.has(code)));
 
   tableBody.innerHTML = tickets.length
     ? tickets
@@ -179,6 +215,14 @@ function renderTable() {
 
           return `
             <tr>
+              <td>
+                <input
+                  type="checkbox"
+                  data-ticket-select="${escapeAttribute(ticket.code)}"
+                  aria-label="Выбрать билет ${escapeAttribute(ticket.code)}"
+                  ${selectedTicketCodes.has(ticket.code) ? "checked" : ""}
+                />
+              </td>
               <td>${escapeHtml(ticket.seatDisplayLabel || ticket.seatLabel || "")}</td>
               <td>
                 <div class="admin-inline-edit">
@@ -199,7 +243,9 @@ function renderTable() {
           `;
         })
         .join("")
-    : '<tr><td colspan="7" class="muted">Ничего не найдено.</td></tr>';
+    : '<tr><td colspan="8" class="muted">Ничего не найдено.</td></tr>';
+
+  updateSelectedTicketsUi();
 }
 
 function formatAdminSeatDisplay(seat) {
@@ -216,7 +262,7 @@ function formatAdminSeatDisplay(seat) {
 function renderAdminTicketGenerator() {
   if (!adminTicketCode) return;
 
-  const tickets = flattenTickets(state).map((ticket) => normalizeTicketDisplay(state, ticket));
+  const tickets = getNormalizedTickets();
 
   adminTicketCode.innerHTML = tickets.length
     ? tickets
@@ -425,7 +471,7 @@ designerModeButtons.forEach((button) => {
 adminTicketGenerator?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const ticket = flattenTickets(state).map((item) => normalizeTicketDisplay(state, item)).find((item) => item.code === adminTicketCode.value);
+  const ticket = getNormalizedTickets().find((item) => item.code === adminTicketCode.value);
   if (!ticket) {
     adminTicketGeneratorStatus.textContent = "Выберите билет из списка броней.";
     return;
@@ -445,6 +491,64 @@ adminTicketGenerator?.addEventListener("submit", async (event) => {
     console.error(error);
     adminTicketGeneratorStatus.textContent = "Не удалось сгенерировать PDF. Попробуйте ещё раз.";
   }
+});
+
+downloadSelectedTicketsButton?.addEventListener("click", async () => {
+  const tickets = getNormalizedTickets().filter((ticket) => selectedTicketCodes.has(ticket.code));
+  if (!tickets.length) {
+    updateSelectedTicketsUi();
+    return;
+  }
+
+  downloadSelectedTicketsButton.disabled = true;
+  adminTicketGeneratorStatus.textContent = `Готовим PDF для выбранных билетов: ${tickets.length}`;
+  adminTicketDownloadResult.innerHTML = "";
+
+  try {
+    const blob = await buildTicketsPdfBlob(tickets);
+    const url = URL.createObjectURL(blob);
+    adminTicketDownloadResult.innerHTML = `
+      <a class="button button--primary button--full" href="${url}" download="selected-tickets.pdf" target="_blank" rel="noopener">Открыть / скачать выбранные PDF</a>
+    `;
+    adminTicketGeneratorStatus.textContent = `PDF готов. Билетов: ${tickets.length}`;
+  } catch (error) {
+    console.error(error);
+    adminTicketGeneratorStatus.textContent = "Не удалось сгенерировать PDF для выбранных билетов. Попробуйте ещё раз.";
+  } finally {
+    updateSelectedTicketsUi();
+  }
+});
+
+selectVisibleTicketsButton?.addEventListener("click", () => {
+  visibleTicketCodes.forEach((code) => selectedTicketCodes.add(code));
+  renderTable();
+});
+
+clearSelectedTicketsButton?.addEventListener("click", () => {
+  selectedTicketCodes.clear();
+  renderTable();
+});
+
+selectVisibleCheckbox?.addEventListener("change", () => {
+  if (selectVisibleCheckbox.checked) {
+    visibleTicketCodes.forEach((code) => selectedTicketCodes.add(code));
+  } else {
+    visibleTicketCodes.forEach((code) => selectedTicketCodes.delete(code));
+  }
+  renderTable();
+});
+
+tableBody.addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-ticket-select]");
+  if (!checkbox) return;
+
+  if (checkbox.checked) {
+    selectedTicketCodes.add(checkbox.dataset.ticketSelect);
+  } else {
+    selectedTicketCodes.delete(checkbox.dataset.ticketSelect);
+  }
+
+  updateSelectedTicketsUi();
 });
 
 tableBody.addEventListener("click", async (event) => {
@@ -496,7 +600,7 @@ tableBody.addEventListener("click", async (event) => {
 });
 
 exportButton.addEventListener("click", () => {
-  const tickets = flattenTickets(state).map((ticket) => normalizeTicketDisplay(state, ticket));
+  const tickets = getNormalizedTickets();
   const rows = [
     ["seat", "full_name", "group", "ticket_code", "contact_phone", "contact_note", "status", "created_at", "checked_in_at"],
     ...tickets.map((ticket) => [
