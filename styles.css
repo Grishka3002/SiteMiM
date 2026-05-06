@@ -1248,6 +1248,19 @@ body[data-page="volunteer"] .scan-result {
   flex-wrap: wrap;
 }
 
+.admin-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.data-table input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--blue);
+}
+
 .admin-tabs {
   display: flex;
   gap: 10px;
