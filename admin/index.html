@@ -47,9 +47,15 @@
             </div>
             <div class="toolbar">
               <input id="admin-search" class="input" type="search" placeholder="Поиск по ФИО, группе, коду, месту" />
+              <button class="button button--primary" id="download-selected-tickets" type="button" disabled>Скачать выбранные билеты</button>
               <button class="button button--ghost" id="export-data">Скачать CSV</button>
               <button class="button button--danger" id="reset-demo">Очистить все данные</button>
             </div>
+          </div>
+          <div class="admin-selection-bar">
+            <button class="button button--ghost button--small" id="select-visible-tickets" type="button">Выбрать найденные</button>
+            <button class="button button--ghost button--small" id="clear-selected-tickets" type="button">Снять выбор</button>
+            <span class="muted" id="selected-tickets-status">Выбрано билетов: 0</span>
           </div>
           <form class="admin-ticket-generator" id="admin-ticket-generator">
             <label class="field">
@@ -76,6 +82,7 @@
             <table class="data-table">
               <thead>
                 <tr>
+                  <th><input type="checkbox" id="select-visible-checkbox" aria-label="Выбрать найденные билеты" /></th>
                   <th>Место</th>
                   <th>ФИО</th>
                   <th>Группа</th>
