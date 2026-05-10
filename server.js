@@ -65,6 +65,20 @@ function getCandidateName(fileName) {
     .trim();
 }
 
+function getCandidateNumber(fileName) {
+  const match = String(fileName).match(/(?:№|#|N)\s*(\d+)/i);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
+
+function compareVoteCandidateFiles(a, b) {
+  const numberDiff = getCandidateNumber(a) - getCandidateNumber(b);
+  if (numberDiff !== 0) {
+    return numberDiff;
+  }
+
+  return a.localeCompare(b, "ru", { numeric: true, sensitivity: "base" });
+}
+
 function listVoteCandidates(group, directory) {
   if (!fs.existsSync(directory)) {
     return [];
@@ -75,7 +89,7 @@ function listVoteCandidates(group, directory) {
     .filter((entry) => entry.isFile())
     .map((entry) => entry.name)
     .filter((fileName) => VOTING_IMAGE_EXTENSIONS.has(path.extname(fileName).toLowerCase()))
-    .sort((a, b) => a.localeCompare(b, "ru"))
+    .sort(compareVoteCandidateFiles)
     .slice(0, 5)
     .map((fileName) => {
       const name = getCandidateName(fileName);
