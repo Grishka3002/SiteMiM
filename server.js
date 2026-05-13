@@ -114,6 +114,198 @@ function writeVotes(votesState) {
   fs.writeFileSync(VOTES_FILE, JSON.stringify(votesState, null, 2), "utf8");
 }
 
+function createStateBackup(reason = "manual") {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupFile = path.join(DATA_DIR, `state-backup-${reason}-${stamp}.json`);
+  if (fs.existsSync(STATE_FILE)) {
+    fs.copyFileSync(STATE_FILE, backupFile);
+  }
+  return backupFile;
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (inQuotes) {
+      if (char === '"' && next === '"') {
+        field += '"';
+        index += 1;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+    } else if (char === ";") {
+      row.push(field);
+      field = "";
+    } else if (char === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else if (char !== "\r") {
+      field += char;
+    }
+  }
+
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows.filter((item) => item.some((value) => value !== ""));
+}
+
+function parseCsvExport(content) {
+  const rows = parseCsv(String(content || "").replace(/^\uFEFF/, ""));
+  const header = rows.shift() || [];
+  return rows.map((row) => Object.fromEntries(header.map((key, index) => [key, row[index] || ""])));
+}
+
+function parseSeatFromDisplay(label) {
+  const match = String(label || "").match(/^(.*?),\s*ряд\s*(\d+),\s*место\s*(\d+)/i);
+  if (!match) return null;
+
+  const section = match[1].trim().toLowerCase();
+  const sectionId = section.includes("партер")
+    ? "parter"
+    : section.includes("балкон")
+      ? "balcony"
+      : section.includes("ложа 1")
+        ? "lodge-left"
+        : section.includes("ложа 2")
+          ? "lodge-right"
+          : "";
+
+  return {
+    sectionId,
+    row: match[2],
+    number: Number(match[3])
+  };
+}
+
+function makeRestoredId(prefix, value) {
+  return `${prefix}-${Buffer.from(String(value)).toString("base64url").slice(0, 22)}`;
+}
+
+function buildStateFromCsvExport(csvContent) {
+  const currentState = readSharedState();
+  const entries = parseCsvExport(csvContent);
+  const groups = new Map();
+  const seenCodes = new Set();
+  const unmatchedSeats = [];
+
+  entries.forEach((entry) => {
+    const ticketCode = String(entry.ticket_code || "").trim();
+    if (!ticketCode || seenCodes.has(ticketCode)) return;
+
+    const parsedSeat = parseSeatFromDisplay(entry.seat);
+    const seat = parsedSeat && (currentState.seats || []).find(
+      (item) =>
+        item.sectionId === parsedSeat.sectionId &&
+        String(item.row) === parsedSeat.row &&
+        Number(item.number) === parsedSeat.number
+    );
+
+    if (!seat) {
+      unmatchedSeats.push(entry.seat);
+      return;
+    }
+
+    seenCodes.add(ticketCode);
+    const createdAt = entry.created_at || new Date().toISOString();
+    const contactPhone = String(entry.contact_phone || "").trim();
+    const contactNote = String(entry.contact_note || "").trim();
+    const bookingKey = `${createdAt}|${contactPhone}|${contactNote}`;
+
+    if (!groups.has(bookingKey)) {
+      groups.set(bookingKey, {
+        id: makeRestoredId("booking-restored", bookingKey),
+        createdAt,
+        contactPhone,
+        contactNote,
+        tickets: []
+      });
+    }
+
+    const status = entry.status === "checked" ? "checked" : "booked";
+    const booking = groups.get(bookingKey);
+    booking.tickets.push({
+      id: makeRestoredId("ticket-restored", ticketCode),
+      code: ticketCode,
+      seatId: seat.id,
+      seatLabel: seat.ticketLabel || String(entry.seat || "").trim(),
+      seatDisplayLabel: getSeatDisplayLabel(seat),
+      fullName: String(entry.full_name || "").trim(),
+      group: String(entry.group || "").trim(),
+      issuedDeviceId: "VVGU-RESTORED-UPLOAD",
+      status,
+      checkedInAt: status === "checked" ? (entry.checked_in_at || new Date().toISOString()) : null,
+      bookingId: booking.id
+    });
+  });
+
+  if (unmatchedSeats.length) {
+    const error = new Error("unmatched_seats");
+    error.unmatchedSeats = unmatchedSeats.slice(0, 20);
+    error.unmatchedCount = unmatchedSeats.length;
+    throw error;
+  }
+
+  const bookings = [...groups.values()]
+    .filter((booking) => booking.tickets.length)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const restoredTickets = bookings.reduce((sum, booking) => sum + booking.tickets.length, 0);
+
+  if (entries.length && restoredTickets === 0) {
+    throw new Error("no_tickets_to_restore");
+  }
+
+  return {
+    state: {
+      ...currentState,
+      holds: [],
+      bookings,
+      lastUpdatedAt: new Date().toISOString()
+    },
+    restoredBookings: bookings.length,
+    restoredTickets
+  };
+}
+
+function buildStateFromUploadedJson(content) {
+  const uploadedState = JSON.parse(content || "null");
+  if (!uploadedState || typeof uploadedState !== "object" || !Array.isArray(uploadedState.bookings)) {
+    throw new Error("invalid_state_json");
+  }
+
+  const currentState = readSharedState();
+  const bookings = uploadedState.bookings;
+  return {
+    state: {
+      ...currentState,
+      ...uploadedState,
+      holds: [],
+      bookings,
+      lastUpdatedAt: new Date().toISOString()
+    },
+    restoredBookings: bookings.length,
+    restoredTickets: bookings.reduce((sum, booking) => sum + ((booking.tickets || []).length), 0)
+  };
+}
+
 /*
 function normalizeVoteLookup(value) {
   return String(value || "")
@@ -278,7 +470,9 @@ const server = http.createServer((request, response) => {
   const urlPath = decodeURIComponent((request.url || "/").split("?")[0]);
 
   const isAdminRoute = urlPath === "/admin" || urlPath.startsWith("/admin/");
-  const isAdminWriteRoute = urlPath === "/api/layout" && request.method === "POST";
+  const isAdminWriteRoute =
+    (urlPath === "/api/layout" && request.method === "POST") ||
+    (urlPath === "/api/state/import" && request.method === "POST");
 
   if ((isAdminRoute || isAdminWriteRoute) && !requireAdminAuth(request, response)) {
     return;
@@ -352,6 +546,45 @@ const server = http.createServer((request, response) => {
       .catch(() => {
         response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
         response.end(JSON.stringify({ error: "invalid_json" }));
+      });
+    return;
+  }
+
+  if (urlPath === "/api/state/import" && request.method === "POST") {
+    readRequestBody(request)
+      .then((raw) => {
+        const payload = JSON.parse(raw || "{}");
+        const fileName = String(payload.fileName || "").toLowerCase();
+        const content = String(payload.content || "");
+        const isJson = fileName.endsWith(".json") || content.trim().startsWith("{");
+        const result = isJson ? buildStateFromUploadedJson(content) : buildStateFromCsvExport(content);
+        const backupFile = createStateBackup("import");
+
+        fs.writeFile(STATE_FILE, JSON.stringify(result.state, null, 2), "utf8", (error) => {
+          if (error) {
+            sendJson(response, 500, { error: "state_write_failed" });
+            return;
+          }
+
+          sendJson(response, 200, {
+            ok: true,
+            backupFile: path.basename(backupFile),
+            restoredBookings: result.restoredBookings,
+            restoredTickets: result.restoredTickets
+          });
+        });
+      })
+      .catch((error) => {
+        if (error?.message === "unmatched_seats") {
+          sendJson(response, 400, {
+            error: "unmatched_seats",
+            unmatchedCount: error.unmatchedCount,
+            unmatchedSeats: error.unmatchedSeats
+          });
+          return;
+        }
+
+        sendJson(response, 400, { error: error?.message || "invalid_import_file" });
       });
     return;
   }
