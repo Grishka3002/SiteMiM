@@ -38,6 +38,9 @@ const adminTicketGenerator = document.getElementById("admin-ticket-generator");
 const adminTicketCode = document.getElementById("admin-ticket-code");
 const adminTicketGeneratorStatus = document.getElementById("admin-ticket-generator-status");
 const adminTicketDownloadResult = document.getElementById("admin-ticket-download-result");
+const adminStateImportForm = document.getElementById("admin-state-import-form");
+const adminStateImportFile = document.getElementById("admin-state-import-file");
+const adminStateImportStatus = document.getElementById("admin-state-import-status");
 
 let state = getState();
 let selectedCells = new Set((state.customLayout?.cells || []).map((cell) => `${cell.x}:${cell.y}`));
@@ -107,6 +110,29 @@ async function saveRemoteState(nextState) {
   if (!response.ok) {
     throw new Error("Failed to save shared state");
   }
+}
+
+async function importStateFile(file) {
+  const content = await file.text();
+  const response = await fetch("/api/state/import", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      fileName: file.name,
+      content
+    })
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || "Failed to import state");
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
 }
 
 function applyState(nextState) {
@@ -466,6 +492,42 @@ tabButtons.forEach((button) => {
 
 designerModeButtons.forEach((button) => {
   button.addEventListener("click", () => setDesignerMode(button.dataset.designerMode));
+});
+
+adminStateImportForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const file = adminStateImportFile?.files?.[0];
+  if (!file) {
+    adminStateImportStatus.textContent = "Выберите CSV или JSON файл для восстановления.";
+    return;
+  }
+
+  const approved = window.confirm(
+    "Восстановить брони из выбранного файла? Текущий state.json будет сохранён в бэкап, а список броней заменится данными из файла."
+  );
+  if (!approved) return;
+
+  const submitButton = adminStateImportForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  adminStateImportStatus.textContent = "Загружаем файл и восстанавливаем брони...";
+
+  try {
+    const result = await importStateFile(file);
+    adminStateImportStatus.textContent =
+      `Готово: восстановлено броней ${result.restoredBookings}, билетов ${result.restoredTickets}. Бэкап: ${result.backupFile}.`;
+    await syncSharedState({ forceRender: true });
+  } catch (error) {
+    console.error(error);
+    if (error.payload?.error === "unmatched_seats") {
+      adminStateImportStatus.textContent =
+        `Не удалось сопоставить мест: ${error.payload.unmatchedCount}. Первые: ${(error.payload.unmatchedSeats || []).join("; ")}`;
+    } else {
+      adminStateImportStatus.textContent = "Не удалось восстановить брони из файла. Проверьте CSV/JSON и попробуйте ещё раз.";
+    }
+  } finally {
+    submitButton.disabled = false;
+  }
 });
 
 adminTicketGenerator?.addEventListener("submit", async (event) => {
