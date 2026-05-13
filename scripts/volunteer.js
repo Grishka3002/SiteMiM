@@ -1,4 +1,4 @@
-import { findTicketByCode, getState, updateTicketStatus } from "./data.js";
+import { findTicketByCode, getState, normalizeTicketDisplay, saveState, updateTicketStatus } from "./data.js";
 
 const startScanButton = document.getElementById("start-scan");
 const video = document.getElementById("scanner-video");
@@ -13,6 +13,9 @@ let detector = null;
 let scanTimer = null;
 let fallbackCanvas = null;
 let fallbackContext = null;
+let pendingTicketCode = "";
+let lastProcessedCode = "";
+let lastProcessedAt = 0;
 
 function formatDate(dateIso) {
   return new Intl.DateTimeFormat("ru-RU", {
@@ -26,32 +29,75 @@ function renderResult(type, html) {
   resultNode.innerHTML = html;
 }
 
-function normalizeTicketCode(rawCode) {
-  const value = rawCode.trim();
-  if (!value) {
-    return "";
+async function fetchRemoteState() {
+  const response = await fetch("/api/state", { cache: "no-store" }).catch(() => null);
+  if (!response?.ok) return null;
+  return response.json().catch(() => null);
+}
+
+async function saveRemoteState(nextState) {
+  const response = await fetch("/api/state", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(nextState)
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to save shared state");
   }
+}
+
+async function syncStateFromServer() {
+  const remoteState = await fetchRemoteState();
+  state = remoteState && typeof remoteState === "object" ? saveState(remoteState) : getState();
+  return state;
+}
+
+function normalizeTicketCode(rawCode) {
+  const value = String(rawCode || "").trim();
+  if (!value) return "";
 
   try {
     const parsed = JSON.parse(value);
     if (parsed && typeof parsed.ticketCode === "string") {
       return parsed.ticketCode.trim();
     }
-  } catch (error) {
+  } catch {
     return value;
   }
 
   return value;
 }
 
-function processCode(rawCode) {
+function renderTicketDetails(booking, ticket) {
+  const displayTicket = normalizeTicketDisplay(state, ticket);
+  return `
+    <p><strong>${displayTicket.fullName}</strong></p>
+    <p>Место: ${displayTicket.seatDisplayLabel || displayTicket.seatLabel}</p>
+    ${displayTicket.group ? `<p>Группа: ${displayTicket.group}</p>` : ""}
+    <p>Код билета: <code>${displayTicket.code}</code></p>
+    <p>Контакт: ${booking.contactPhone} / ${booking.contactNote}</p>
+  `;
+}
+
+async function processCode(rawCode) {
   const code = normalizeTicketCode(rawCode);
   if (!code) return;
 
-  state = getState();
+  const now = Date.now();
+  if (code === lastProcessedCode && now - lastProcessedAt < 2500) {
+    return;
+  }
+  lastProcessedCode = code;
+  lastProcessedAt = now;
+
+  await syncStateFromServer();
   const match = findTicketByCode(state, code);
 
   if (!match) {
+    pendingTicketCode = "";
     renderResult("danger", `<h3>Билет не найден</h3><p>Код <code>${code}</code> отсутствует в базе.</p>`);
     return;
   }
@@ -59,32 +105,83 @@ function processCode(rawCode) {
   const { booking, ticket } = match;
 
   if (ticket.status === "checked") {
+    pendingTicketCode = "";
     renderResult(
       "warning",
       `<h3>Повторный проход</h3>
-       <p><strong>${ticket.fullName}</strong>, место ${ticket.seatLabel}, группа ${ticket.group}</p>
-       <p>Этот билет уже был отмечен ${ticket.checkedInAt ? formatDate(ticket.checkedInAt) : "ранее"}.</p>
-       <p>Контакт: ${booking.contactPhone} / ${booking.contactNote}</p>`
+       ${renderTicketDetails(booking, ticket)}
+       <p>Этот билет уже был отмечен ${ticket.checkedInAt ? formatDate(ticket.checkedInAt) : "ранее"}.</p>`
     );
     return;
   }
 
-  updateTicketStatus(state, code, "checked");
-  state = getState();
-
+  pendingTicketCode = code;
   renderResult(
     "success",
-    `<h3>Проход разрешён</h3>
-     <p><strong>${ticket.fullName}</strong>, место ${ticket.seatLabel}, группа ${ticket.group}</p>
-     <p>Билет ${ticket.code} отмечен на входе.</p>
-     <p>Контакт: ${booking.contactPhone} / ${booking.contactNote}</p>`
+    `<h3>Билет найден</h3>
+     ${renderTicketDetails(booking, ticket)}
+     <button class="button button--primary button--full" type="button" data-confirm-entry="${ticket.code}">Отметить вход</button>`
   );
 }
 
-scanForm.addEventListener("submit", (event) => {
+async function confirmEntry(ticketCode) {
+  await syncStateFromServer();
+  const match = findTicketByCode(state, ticketCode);
+
+  if (!match) {
+    pendingTicketCode = "";
+    renderResult("danger", `<h3>Билет не найден</h3><p>Код <code>${ticketCode}</code> отсутствует в базе.</p>`);
+    return;
+  }
+
+  const { booking, ticket } = match;
+
+  if (ticket.status === "checked") {
+    pendingTicketCode = "";
+    renderResult(
+      "warning",
+      `<h3>Повторный проход</h3>
+       ${renderTicketDetails(booking, ticket)}
+       <p>Этот билет уже был отмечен ${ticket.checkedInAt ? formatDate(ticket.checkedInAt) : "ранее"}.</p>`
+    );
+    return;
+  }
+
+  const result = updateTicketStatus(state, ticketCode, "checked");
+  state = result.state;
+  await saveRemoteState(state);
+  await syncStateFromServer();
+
+  const updated = findTicketByCode(state, ticketCode);
+  pendingTicketCode = "";
+
+  renderResult(
+    "success",
+    `<h3>Вход отмечен</h3>
+     ${renderTicketDetails(updated?.booking || booking, updated?.ticket || result.ticket)}
+     <p>Статус сохранён в общей базе и будет виден в админке.</p>`
+  );
+}
+
+scanForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  processCode(ticketCodeInput.value);
+  await processCode(ticketCodeInput.value);
   scanForm.reset();
+});
+
+resultNode.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-confirm-entry]");
+  if (!button) return;
+
+  button.disabled = true;
+  button.textContent = "Сохраняем вход...";
+
+  try {
+    await confirmEntry(button.dataset.confirmEntry || pendingTicketCode);
+  } catch (error) {
+    console.error(error);
+    renderResult("danger", "<h3>Не удалось отметить вход</h3><p>Проверьте интернет и попробуйте ещё раз.</p>");
+  }
 });
 
 async function scanFrame() {
@@ -97,7 +194,7 @@ async function scanFrame() {
       const barcodes = await detector.detect(video);
       if (barcodes.length) {
         const [barcode] = barcodes;
-        processCode(barcode.rawValue);
+        await processCode(barcode.rawValue);
         ticketCodeInput.value = barcode.rawValue;
         return;
       }
@@ -119,7 +216,7 @@ async function scanFrame() {
       const result = window.jsQR(imageData.data, imageData.width, imageData.height);
 
       if (result?.data) {
-        processCode(result.data);
+        await processCode(result.data);
         ticketCodeInput.value = result.data;
       }
     }
@@ -137,8 +234,8 @@ async function startScanner() {
     video.classList.remove("hidden");
 
     scannerHint.textContent = detector
-      ? "Наведите камеру на QR-код. После распознавания билет отметится автоматически."
-      : "Камера включена. В этом браузере используется fallback-сканирование QR через видео.";
+      ? "Наведите камеру на QR-код. После распознавания подтвердите вход кнопкой."
+      : "Камера включена. После распознавания QR подтвердите вход кнопкой.";
 
     window.clearInterval(scanTimer);
     scanTimer = window.setInterval(scanFrame, 700);
