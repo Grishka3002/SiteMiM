@@ -57,6 +57,14 @@
             <button class="button button--ghost button--small" id="clear-selected-tickets" type="button">Снять выбор</button>
             <span class="muted" id="selected-tickets-status">Выбрано билетов: 0</span>
           </div>
+          <form class="admin-import-form" id="admin-state-import-form">
+            <label class="field">
+              <span>Восстановить брони из CSV или JSON</span>
+              <input class="input" id="admin-state-import-file" type="file" accept=".csv,.json,text/csv,application/json" />
+            </label>
+            <button class="button button--ghost" type="submit">Загрузить и восстановить брони</button>
+            <p class="muted" id="admin-state-import-status">Перед восстановлением текущий state.json будет сохранён в бэкап.</p>
+          </form>
           <form class="admin-ticket-generator" id="admin-ticket-generator">
             <label class="field">
               <span>Билет из списка броней</span>
